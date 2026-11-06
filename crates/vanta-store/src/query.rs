@@ -1,4 +1,4 @@
-//! Profile search language (F01, F16).
+//! Profile search language (F01).
 //!
 //! `tag:shop os:win11 health:<80 status:running folder:"QA Lab" proxy:DE frankfurt`
 //! Terms are AND-ed; the word `OR` separates alternative groups.
@@ -62,7 +62,6 @@ fn os_alias(v: &str) -> Result<String> {
         "win10" | "windows10" | "w10" => "windows10",
         "mac" | "macos" | "osx" => "mac_os",
         "linux" | "ubuntu" => "linux",
-        "android" => "android",
         other => return Err(VantaError::Invalid(format!("unknown os '{other}'"))),
     }
     .to_string())

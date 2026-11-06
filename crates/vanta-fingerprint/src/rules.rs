@@ -1,4 +1,5 @@
-//! Consistency rules C001–C031 (F02). A `Fail` blocks launch; a `Note` is shown only.
+//! Consistency rules C001–C030 (F02). A `Fail` blocks launch; a `Note` is shown only.
+//! Desktop personas only (Windows 10/11, macOS, Linux).
 
 use crate::persona::{Persona, SurfaceMode};
 use serde::Serialize;
@@ -18,7 +19,7 @@ pub struct RuleResult {
     pub message: String,
 }
 
-pub const RULE_COUNT: usize = 31;
+pub const RULE_COUNT: usize = 30;
 
 fn r(id: &'static str, ok: bool, pass: &str, fail: String) -> RuleResult {
     RuleResult {
@@ -28,6 +29,19 @@ fn r(id: &'static str, ok: bool, pass: &str, fail: String) -> RuleResult {
     }
 }
 
+fn note(id: &'static str, msg: impl Into<String>) -> RuleResult {
+    RuleResult {
+        id,
+        level: Level::Note,
+        message: msg.into(),
+    }
+}
+
+fn is_windows(os: OsKind) -> bool {
+    matches!(os, OsKind::Windows10 | OsKind::Windows11)
+}
+
+/// Which OS families a WebGL renderer string can come from. Empty = software renderer.
 fn gpu_os(renderer: &str) -> Option<&'static [&'static str]> {
     const T: &[(&str, &[&str])] = &[
         ("SwiftShader", &[]),
@@ -37,10 +51,6 @@ fn gpu_os(renderer: &str) -> Option<&'static [&'static str]> {
         ("Metal Renderer", &["macOS"]),
         ("Mesa", &["Linux"]),
         ("OpenGL 4", &["Linux"]),
-        ("Adreno", &["Android"]),
-        ("Mali", &["Android"]),
-        ("PowerVR", &["Android"]),
-        ("Xclipse", &["Android"]),
     ];
     T.iter()
         .find(|(t, _)| renderer.contains(t))
@@ -55,10 +65,6 @@ fn gpu_brand(s: &str) -> Option<&'static str> {
         ("radeon", "amd"),
         ("intel", "intel"),
         ("apple", "apple"),
-        ("adreno", "qualcomm"),
-        ("qualcomm", "qualcomm"),
-        ("mali", "arm"),
-        ("arm", "arm"),
     ] {
         if l.contains(k) {
             return Some(v);
@@ -81,7 +87,6 @@ const BASE_FONTS: &[(&str, &[&str])] = &[
     ),
     ("macOS", &["Helvetica", "Helvetica Neue", "Menlo", "Times"]),
     ("Linux", &["DejaVu Sans"]),
-    ("Android", &["Roboto"]),
 ];
 const EXCLUSIVE_FONTS: &[(&str, &[&str])] = &[
     (
@@ -105,7 +110,6 @@ const EXCLUSIVE_FONTS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Linux", &["DejaVu Sans", "Ubuntu", "Cantarell"]),
-    ("Android", &["Roboto", "Droid Sans Mono", "Cutive Mono"]),
 ];
 
 /// IANA zones that are plausible for an exit country. Unknown country -> cannot verify.
@@ -202,21 +206,16 @@ pub fn timezones_for(country: &str) -> Option<&'static [&'static str]> {
         .map(|(_, z)| *z)
 }
 
-fn win_platform_major(p: &Persona) -> Option<u32> {
-    p.ua_ch.platform_version.split('.').next()?.parse().ok()
-}
-
 /// Run every rule against a persona and the installed engine version.
 pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
     let fam = p.os.family();
-    let mobile = p.os.is_mobile();
     let mut out = Vec::with_capacity(RULE_COUNT);
 
+    // --- Browser & OS identity -------------------------------------------------
     let ua_token = match p.os {
         OsKind::Windows10 | OsKind::Windows11 => "Windows NT 10.0; Win64; x64",
         OsKind::MacOs => "Macintosh; Intel Mac OS X 10_15_7",
         OsKind::Linux => "X11; Linux x86_64",
-        OsKind::Android => "Linux; Android 10; K",
     };
     out.push(r(
         "C001",
@@ -224,14 +223,10 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         "UA OS token matches OS",
         format!("UA does not contain '{ua_token}'"),
     ));
-
     let plat_ok = match p.os {
         OsKind::Windows10 | OsKind::Windows11 => p.platform == "Win32",
         OsKind::MacOs => p.platform == "MacIntel",
-        OsKind::Linux => p.platform.starts_with("Linux x86_64") || p.platform == "Linux aarch64",
-        OsKind::Android => {
-            ["Linux armv8l", "Linux aarch64", "Linux armv81"].contains(&p.platform.as_str())
-        }
+        OsKind::Linux => p.platform == "Linux x86_64" || p.platform == "Linux aarch64",
     };
     out.push(r(
         "C002",
@@ -246,6 +241,7 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         format!("UA-CH platform '{}' != {fam}", p.ua_ch.platform),
     ));
 
+    // --- Graphics ----------------------------------------------------------------
     let g = gpu_os(&p.gpu.renderer);
     out.push(r(
         "C004",
@@ -259,17 +255,11 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         "Hardware GPU (no software renderer)",
         "software renderer (SwiftShader/llvmpipe) reveals a VM or headless run".into(),
     ));
-
     let vb = gpu_brand(&p.gpu.vendor);
     let rb = gpu_brand(&p.gpu.renderer);
-    let c006 = if mobile {
-        true
-    } else {
-        p.gpu.vendor.starts_with("Google Inc. (") && vb.is_some() && vb == rb
-    };
     out.push(r(
         "C006",
-        c006,
+        p.gpu.vendor.starts_with("Google Inc. (") && vb.is_some() && vb == rb,
         "WebGL vendor matches renderer",
         format!("vendor '{}' does not match renderer", p.gpu.vendor),
     ));
@@ -281,6 +271,7 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         format!("WebGPU vendor '{}' != GPU", p.gpu.webgpu_vendor),
     ));
 
+    // --- Screen ------------------------------------------------------------------
     let s = p.screen;
     out.push(r(
         "C008",
@@ -288,16 +279,11 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         "Available screen fits inside screen",
         "available area larger than screen".into(),
     ));
-    let size_ok = if mobile {
-        (320..=1280).contains(&s.width) && s.height > s.width
-    } else {
-        s.width >= 1024 && s.height >= 600 && s.width <= 7680
-    };
     out.push(r(
         "C009",
-        size_ok,
+        s.width >= 1024 && s.height >= 600 && s.width <= 7680 && s.width > s.height,
         "Screen size plausible",
-        format!("screen {}x{} implausible", s.width, s.height),
+        format!("screen {}x{} implausible for a desktop", s.width, s.height),
     ));
     let dpr = p.device_pixel_ratio;
     let dpr_ok = match p.os {
@@ -306,7 +292,6 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         }
         OsKind::MacOs => dpr == 1.0 || dpr == 2.0,
         OsKind::Linux => [1.0, 1.25, 1.5, 2.0].contains(&dpr),
-        OsKind::Android => (1.5..=4.0).contains(&dpr),
     };
     out.push(r(
         "C010",
@@ -321,6 +306,7 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         format!("color depth {}", s.color_depth),
     ));
 
+    // --- Fonts -------------------------------------------------------------------
     let base = BASE_FONTS
         .iter()
         .find(|(f, _)| *f == fam)
@@ -351,12 +337,13 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         format!("foreign fonts: {}", foreign.join(", ")),
     ));
 
-    const CORES: [u32; 13] = [2, 4, 6, 8, 9, 10, 12, 14, 16, 20, 24, 28, 32];
+    // --- Hardware ----------------------------------------------------------------
+    const CORES: [u32; 12] = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32];
     out.push(r(
         "C014",
         CORES.contains(&p.hardware_concurrency),
         "CPU core count real",
-        format!("{} cores is not a real CPU", p.hardware_concurrency),
+        format!("{} cores is not a real desktop CPU", p.hardware_concurrency),
     ));
     const MEM: [f64; 6] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0];
     out.push(r(
@@ -368,31 +355,27 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
             p.device_memory
         ),
     ));
-    let touch_ok = if mobile {
-        p.max_touch_points >= 1
-    } else {
-        p.max_touch_points == 0
-            || (matches!(p.os, OsKind::Windows10 | OsKind::Windows11) && p.max_touch_points == 10)
-    };
+    let touch_ok = p.max_touch_points == 0 || (is_windows(p.os) && p.max_touch_points == 10);
     out.push(r(
         "C016",
         touch_ok,
         "Touch points fit device",
-        format!("maxTouchPoints {}", p.max_touch_points),
+        format!("maxTouchPoints {} on {fam}", p.max_touch_points),
     ));
+    let desktop_ok = !p.ua_ch.mobile
+        && !p.user_agent.contains(" Mobile ")
+        && p.ua_ch.model.is_empty()
+        && p.ua_ch.form_factors == ["Desktop"];
     out.push(r(
         "C017",
-        p.ua_ch.mobile == mobile && p.user_agent.contains(" Mobile ") == mobile,
-        "Mobile flag consistent",
-        "UA-CH mobile / UA Mobile token mismatch".into(),
+        desktop_ok,
+        "Desktop flags consistent (mobile=false, no model, form factor Desktop)",
+        "UA-CH mobile/model/form factor do not describe a desktop".into(),
     ));
 
+    // --- Location & language -----------------------------------------------------
     out.push(match &p.geo {
-        None => RuleResult {
-            id: "C018",
-            level: Level::Note,
-            message: "no exit-IP location yet; timezone not verified".into(),
-        },
+        None => note("C018", "no exit-IP location yet; timezone not verified"),
         Some(g) => match timezones_for(&g.country) {
             Some(z) => r(
                 "C018",
@@ -403,11 +386,10 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
                     g.timezone, g.country
                 ),
             ),
-            None => RuleResult {
-                id: "C018",
-                level: Level::Note,
-                message: format!("country {} not in table; timezone not verified", g.country),
-            },
+            None => note(
+                "C018",
+                format!("country {} not in table; timezone not verified", g.country),
+            ),
         },
     });
     out.push(r(
@@ -417,7 +399,7 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         "languages[0] must equal locale".into(),
     ));
     let al = p.accept_language();
-    let al_ok = al.split(',').next().map(|x| x == p.locale).unwrap_or(false)
+    let al_ok = al.split(',').next() == Some(p.locale.as_str())
         && al.split(',').count() == p.languages.len();
     out.push(r(
         "C020",
@@ -426,7 +408,14 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         format!("Accept-Language '{al}' inconsistent"),
     ));
 
-    let c021 = match (p.os, win_platform_major(p)) {
+    // --- UA Client Hints details -------------------------------------------------
+    let pv_major: Option<u32> = p
+        .ua_ch
+        .platform_version
+        .split('.')
+        .next()
+        .and_then(|x| x.parse().ok());
+    let c021 = match (p.os, pv_major) {
         (OsKind::Windows11, Some(m)) => m >= 13,
         (OsKind::Windows10, Some(m)) => (1..=10).contains(&m),
         (OsKind::Windows10 | OsKind::Windows11, None) => false,
@@ -441,11 +430,8 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
             p.ua_ch.platform_version, p.os
         ),
     ));
-    let arch_ok = if mobile {
-        p.ua_ch.architecture.is_empty() || p.ua_ch.architecture == "arm"
-    } else {
-        ["x86", "arm"].contains(&p.ua_ch.architecture.as_str()) && p.ua_ch.bitness == "64"
-    };
+    let arch_ok =
+        ["x86", "arm"].contains(&p.ua_ch.architecture.as_str()) && p.ua_ch.bitness == "64";
     out.push(r(
         "C022",
         arch_ok,
@@ -455,69 +441,69 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
             p.ua_ch.architecture, p.ua_ch.bitness
         ),
     ));
+
+    // --- Media, network, noise -----------------------------------------------------
+    let m = p.media_devices;
     out.push(r(
         "C023",
-        mobile != p.ua_ch.model.is_empty(),
-        "Device model present only on mobile",
-        "UA-CH model must be set on Android and empty on desktop".into(),
-    ));
-    let ff_ok = if mobile {
-        p.ua_ch
-            .form_factors
-            .iter()
-            .any(|f| f == "Mobile" || f == "Tablet")
-    } else {
-        p.ua_ch.form_factors == ["Desktop"]
-    };
-    out.push(r(
-        "C024",
-        ff_ok,
-        "Form factor consistent",
-        format!("form factors {:?}", p.ua_ch.form_factors),
-    ));
-    let m = p.media_devices;
-    let media_ok = m.audioinput <= 4
-        && m.audiooutput <= 6
-        && m.videoinput <= 4
-        && (!mobile || m.videoinput >= 1);
-    out.push(r(
-        "C025",
-        media_ok,
+        m.audioinput <= 4 && m.audiooutput <= 6 && m.videoinput <= 4,
         "Media device counts plausible",
         format!("media devices {m:?}"),
     ));
     out.push(r(
-        "C026",
+        "C024",
         p.webrtc_policy == "disable_non_proxied_udp",
         "WebRTC uses the proxy only",
         format!("WebRTC policy '{}' can leak the real IP", p.webrtc_policy),
     ));
-    out.push(RuleResult {
-        id: "C027",
-        level: Level::Note,
-        message: "rarity is measured against the device DB (shown in Linkability Radar)".into(),
-    });
+    out.push(note(
+        "C025",
+        "rarity of this device is shown from the device DB weight",
+    ));
     let seeds_ok = (p.canvas != SurfaceMode::Noise || p.canvas_seed != 0)
         && (p.audio != SurfaceMode::Noise || p.audio_seed != 0);
     out.push(r(
-        "C028",
+        "C026",
         seeds_ok,
         "Noise surfaces have stable seeds",
         "noise mode without a seed would change on every read".into(),
     ));
     out.push(r(
-        "C029",
+        "C027",
         p.os != OsKind::MacOs || p.user_agent.contains("Intel Mac OS X 10_15_7"),
         "macOS UA uses the frozen 10_15_7 token",
         "macOS UA must use the frozen Intel Mac OS X 10_15_7 token".into(),
     ));
+
+    // --- Cross-checks ------------------------------------------------------------
+    let apple_gpu = p.gpu.renderer.contains("Apple M") || p.gpu.renderer.contains("Apple GPU");
+    let c028 = match p.os {
+        OsKind::MacOs if apple_gpu => p.ua_ch.architecture == "arm",
+        OsKind::MacOs => p.ua_ch.architecture == "x86",
+        _ => !apple_gpu,
+    };
     out.push(r(
-        "C030",
-        p.os != OsKind::Android || p.user_agent.contains("Android 10; K"),
-        "Android UA is the reduced form",
-        "Android UA must be the reduced 'Android 10; K' form".into(),
+        "C028",
+        c028,
+        "GPU family matches CPU architecture",
+        format!(
+            "GPU '{}' with architecture '{}' is impossible",
+            p.gpu.renderer, p.ua_ch.architecture
+        ),
+    ));
+    let bar = s.height.saturating_sub(s.avail_height);
+    let c029 = !is_windows(p.os) || (s.avail_width == s.width && (24..=80).contains(&bar));
+    out.push(r(
+        "C029",
+        c029,
+        "Windows taskbar gap is real",
+        format!(
+            "screen {}x{} with available {}x{} has no real taskbar",
+            s.width, s.height, s.avail_width, s.avail_height
+        ),
     ));
 
+    // --- R5 version lock ---------------------------------------------------------
     let major_ok = p
         .user_agent
         .contains(&format!("Chrome/{}.0.0.0", installed_engine.major));
@@ -527,7 +513,7 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
         .iter()
         .any(|(b, v)| b == "Chromium" && *v == installed_engine.to_string());
     out.push(r(
-        "C031",
+        "C030",
         p.engine == installed_engine && major_ok && full_ok,
         "UA / UA-CH version = installed engine",
         format!(
@@ -572,22 +558,33 @@ mod tests {
         .unwrap()
     }
 
+    fn mac_m2() -> Persona {
+        let db = builtin();
+        Persona::from_device(
+            db.iter().find(|d| d.id == "mac-m2-mbp14").unwrap(),
+            V,
+            1,
+            "en-US",
+        )
+        .unwrap()
+    }
+
     fn fails(p: &Persona) -> Vec<&'static str> {
         failures(&check(p, V)).iter().map(|r| r.id).collect()
     }
 
     #[test]
-    fn version_mismatch_fails_c031() {
+    fn version_mismatch_fails_c030() {
         let p = win();
         let ids: Vec<_> = failures(&check(&p, EngineVersion::new(156, 0, 8078, 82)))
             .iter()
             .map(|r| r.id)
             .collect();
-        assert_eq!(ids, ["C031"]);
+        assert_eq!(ids, ["C030"]);
         let mut q = win();
-        q.age_to(EngineVersion::new(158, 0, 8127, 18));
+        q.bind_engine(EngineVersion::new(158, 0, 8127, 18));
         assert!(
-            fails(&q).contains(&"C031"),
+            fails(&q).contains(&"C030"),
             "persona newer than engine must fail"
         );
     }
@@ -598,7 +595,15 @@ mod tests {
         p.gpu.renderer =
             "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)".into();
         let f = fails(&p);
-        assert!(f.contains(&"C004") && f.contains(&"C006"));
+        assert!(f.contains(&"C004") && f.contains(&"C006") && f.contains(&"C028"));
+    }
+
+    #[test]
+    fn apple_silicon_needs_arm() {
+        let mut p = mac_m2();
+        assert!(fails(&p).is_empty());
+        p.ua_ch.architecture = "x86".into();
+        assert_eq!(fails(&p), ["C028"]);
     }
 
     #[test]
@@ -632,6 +637,23 @@ mod tests {
     }
 
     #[test]
+    fn mobile_flags_rejected() {
+        let mut p = win();
+        p.ua_ch.mobile = true;
+        assert_eq!(fails(&p), ["C017"]);
+        let mut q = win();
+        q.max_touch_points = 5;
+        assert_eq!(fails(&q), ["C016"]);
+    }
+
+    #[test]
+    fn windows_screen_without_taskbar_fails() {
+        let mut p = win();
+        p.screen.avail_height = p.screen.height;
+        assert_eq!(fails(&p), ["C029"]);
+    }
+
+    #[test]
     fn timezone_vs_exit_country() {
         let mut p = win();
         p.apply_geo(
@@ -662,16 +684,14 @@ mod tests {
     fn webrtc_policy_enforced() {
         let mut p = win();
         p.webrtc_policy = "default".into();
-        assert_eq!(fails(&p), ["C026"]);
+        assert_eq!(fails(&p), ["C024"]);
     }
 
     #[test]
-    fn rule_ids_unique_and_complete() {
+    fn rule_ids_unique_ordered_and_complete() {
         let res = check(&win(), V);
-        let mut ids: Vec<_> = res.iter().map(|r| r.id).collect();
-        ids.dedup();
-        assert_eq!(ids.len(), 31);
-        assert_eq!(ids.first(), Some(&"C001"));
-        assert_eq!(ids.last(), Some(&"C031"));
+        let ids: Vec<_> = res.iter().map(|r| r.id).collect();
+        let expected: Vec<String> = (1..=30).map(|i| format!("C{i:03}")).collect();
+        assert_eq!(ids, expected);
     }
 }

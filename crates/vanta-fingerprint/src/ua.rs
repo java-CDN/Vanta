@@ -81,11 +81,9 @@ pub fn user_agent(os: OsKind, v: &EngineVersion) -> String {
         OsKind::Windows10 | OsKind::Windows11 => "Windows NT 10.0; Win64; x64",
         OsKind::MacOs => "Macintosh; Intel Mac OS X 10_15_7",
         OsKind::Linux => "X11; Linux x86_64",
-        OsKind::Android => "Linux; Android 10; K",
     };
-    let mobile = if os.is_mobile() { " Mobile" } else { "" };
     format!(
-        "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}{mobile} Safari/537.36",
+        "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36",
         v.reduced()
     )
 }
@@ -96,7 +94,6 @@ pub fn ch_platform(os: OsKind) -> &'static str {
         OsKind::Windows10 | OsKind::Windows11 => "Windows",
         OsKind::MacOs => "macOS",
         OsKind::Linux => "Linux",
-        OsKind::Android => "Android",
     }
 }
 
@@ -156,8 +153,5 @@ mod tests {
             user_agent(OsKind::Windows11, &V156),
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
         );
-        assert!(user_agent(OsKind::Android, &V156).contains(
-            "Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari"
-        ));
     }
 }

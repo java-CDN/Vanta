@@ -1,4 +1,4 @@
-//! vanta-vault: master password, vault key, per-profile keys (F09, F18 crypto-shred).
+//! vanta-vault: master password, vault key, per-profile keys (F06 Vault Lock).
 //!
 //! Key hierarchy
 //! ```text
@@ -6,7 +6,7 @@
 //! recovery key (random 32 B, printed once) --HKDF--> recovery wrap key --wraps--> vault key
 //! vault key --HKDF "vanta/kek/v1"--> KEK --wraps (AAD = profile id)--> profile DEK (random 32 B)
 //! ```
-//! Deleting a profile's wrapped DEK makes its data unreadable at once (crypto-shred).
+//! Deleting a profile's wrapped DEK makes its data unreadable at once.
 //! Changing the password only re-wraps the vault key; no profile data is re-encrypted.
 
 mod autolock;
@@ -320,7 +320,7 @@ impl Vault {
         })
     }
 
-    /// Key for the encrypted, hash-chained activity log (F21).
+    /// Key for the encrypted, hash-chained activity log (F08).
     pub fn log_key(&self) -> Result<Key> {
         Ok(self.keys()?.vault_key.derive(INFO_LOG))
     }
@@ -451,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn crypto_shred_means_data_unreadable() {
+    fn deleted_key_means_data_unreadable() {
         // Deleting the wrapped key is the shred: without it, a new key cannot open old data.
         let (v, _) = new_vault();
         let id = ProfileId::new();

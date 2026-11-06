@@ -65,7 +65,6 @@ impl DeviceRecord {
             ("windows", _) => OsKind::Windows10,
             ("macos", _) => OsKind::MacOs,
             ("linux", _) => OsKind::Linux,
-            ("android", _) => OsKind::Android,
             (o, _) => {
                 return Err(VantaError::Invalid(format!(
                     "record {}: unsupported os '{o}'",
@@ -94,11 +93,11 @@ mod tests {
     #[test]
     fn builtin_loads_and_ids_unique() {
         let d = builtin();
-        assert_eq!(d.len(), 16);
+        assert_eq!(d.len(), 14);
         let mut ids: Vec<_> = d.iter().map(|r| r.id.clone()).collect();
         ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), 16);
+        assert_eq!(ids.len(), 14);
         for r in &d {
             r.os_kind().unwrap();
         }

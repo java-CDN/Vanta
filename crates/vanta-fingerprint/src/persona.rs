@@ -1,4 +1,4 @@
-//! A persona = one device record + engine version + seed + location (F02, F20).
+//! A persona = one device record + engine version + seed + location (F02, F07).
 
 use crate::device::{DeviceRecord, Gpu, MediaDevices, Screen};
 use crate::ua;
@@ -102,7 +102,7 @@ impl Persona {
             architecture: dev.ua_ch.architecture.clone(),
             bitness: dev.ua_ch.bitness.clone(),
             model: dev.ua_ch.model.clone(),
-            mobile: os.is_mobile(),
+            mobile: false,
             wow64: dev.ua_ch.wow64,
             form_factors: dev.ua_ch.form_factors.clone(),
         };
@@ -181,7 +181,7 @@ impl Persona {
         out.join(",")
     }
 
-    /// Geo Auto-Match (F20): timezone and location always follow the exit IP;
+    /// Geo Auto-Match (F07): timezone and location always follow the exit IP;
     /// language changes only when the user opts in.
     pub fn apply_geo(&mut self, geo: Geo, change_language_to: Option<&str>) {
         if let Some(loc) = change_language_to {
@@ -191,8 +191,9 @@ impl Persona {
         self.geo = Some(geo);
     }
 
-    /// Move the persona to a new installed engine version (F12 aging). Never above it.
-    pub fn age_to(&mut self, engine: EngineVersion) {
+    /// Bind the persona to the installed engine (R5). Called at every launch, so the
+    /// Chrome version is never stored separately and can never drift from the engine.
+    pub fn bind_engine(&mut self, engine: EngineVersion) {
         self.engine = engine;
         self.user_agent = ua::user_agent(self.os, &engine);
         self.ua_ch.brands = ua::brands(&engine, &self.brand);
@@ -274,11 +275,11 @@ mod tests {
     }
 
     #[test]
-    fn aging_updates_every_version_field() {
+    fn bind_engine_updates_every_version_field() {
         let db = builtin();
         let mut p =
             Persona::from_device(&db[0], EngineVersion::new(155, 0, 8059, 84), 1, "en-US").unwrap();
-        p.age_to(V);
+        p.bind_engine(V);
         assert!(p.user_agent.contains("Chrome/156.0.0.0"));
         assert!(p.sec_ch_ua().contains("\"Chromium\";v=\"156\""));
         assert!(p

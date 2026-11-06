@@ -91,7 +91,7 @@ impl FromStr for EngineVersion {
     }
 }
 
-/// Operating system a persona claims to be.
+/// Operating system a persona claims to be (desktop only; mobile personas are out of scope).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OsKind {
@@ -99,19 +99,14 @@ pub enum OsKind {
     Windows11,
     MacOs,
     Linux,
-    Android,
 }
 
 impl OsKind {
-    pub fn is_mobile(&self) -> bool {
-        matches!(self, OsKind::Android)
-    }
     pub fn family(&self) -> &'static str {
         match self {
             OsKind::Windows10 | OsKind::Windows11 => "Windows",
             OsKind::MacOs => "macOS",
             OsKind::Linux => "Linux",
-            OsKind::Android => "Android",
         }
     }
 }
@@ -172,7 +167,7 @@ pub enum VantaError {
     Crypto,
     #[error("storage error: {0}")]
     Storage(String),
-    #[error("version lock (C031): persona Chrome {persona} != engine {engine}")]
+    #[error("version lock (C030): persona Chrome {persona} != engine {engine}")]
     VersionMismatch { persona: String, engine: String },
 }
 

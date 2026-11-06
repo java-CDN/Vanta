@@ -1,9 +1,9 @@
-//! vanta-store: SQLite + FTS5 profile database (F01, F10, F16).
+//! vanta-store: SQLite + FTS5 profile database (F01).
 //!
 //! Only non-secret metadata is stored in clear (name, tags, folder, status...), so the
 //! profile table can be searched without unlocking each profile. Fingerprint config,
 //! cookies and the like live in `config` as vault-sealed blobs. Deleting a row also
-//! deletes the profile's wrapped key, which is the crypto-shred (F18).
+//! deletes the profile's wrapped key, so the profile's files can no longer be decrypted.
 
 pub mod query;
 
@@ -110,7 +110,6 @@ fn os_str(o: OsKind) -> &'static str {
         OsKind::Windows11 => "windows11",
         OsKind::MacOs => "mac_os",
         OsKind::Linux => "linux",
-        OsKind::Android => "android",
     }
 }
 
@@ -120,7 +119,6 @@ fn os_from(s: &str) -> Result<OsKind> {
         "windows11" => OsKind::Windows11,
         "mac_os" => OsKind::MacOs,
         "linux" => OsKind::Linux,
-        "android" => OsKind::Android,
         _ => return Err(VantaError::Storage(format!("bad os '{s}'"))),
     })
 }
@@ -237,7 +235,7 @@ impl Store {
         self.insert_many(std::iter::once((m, s))).map(|_| ())
     }
 
-    /// One transaction for the whole batch (Bulk Create, F10): all or nothing.
+    /// One transaction for the whole batch: all or nothing (used by import/migrations and tests).
     pub fn insert_many<'a>(
         &mut self,
         items: impl IntoIterator<Item = (&'a ProfileMeta, &'a ProfileSecrets)>,
@@ -385,7 +383,7 @@ impl Store {
         Ok(n)
     }
 
-    /// Deletes metadata, sealed config and the wrapped key (crypto-shred). `secure_delete`
+    /// Deletes metadata, sealed config and the wrapped key. `secure_delete`
     /// makes SQLite overwrite freed pages.
     pub fn delete(&mut self, ids: &[ProfileId]) -> Result<usize> {
         let tx = self.conn.transaction().map_err(db)?;
@@ -517,9 +515,9 @@ mod tests {
             ),
             p(
                 "social-in-01",
-                OsKind::Android,
+                OsKind::Windows11,
                 "Social",
-                &["social", "mobile"],
+                &["social", "in"],
                 "IN",
                 "192.0.2.150",
                 95,
@@ -560,7 +558,7 @@ mod tests {
         assert_eq!(names(&s, "proxy:de"), ["shop-de-01"]);
         assert_eq!(names(&s, "proxy:192.0.2."), ["ads-gb-01", "social-in-01"]);
         assert_eq!(
-            names(&s, "tag:shop OR os:android"),
+            names(&s, "tag:shop OR tag:social"),
             ["shop-de-01", "shop-nl-01", "social-in-01"]
         );
         assert_eq!(names(&s, "health:>=95"), ["shop-de-01", "social-in-01"]);
@@ -684,7 +682,7 @@ mod tests {
             OsKind::Windows11,
             OsKind::Windows10,
             OsKind::MacOs,
-            OsKind::Android,
+            OsKind::Linux,
         ];
         let rows: Vec<ProfileMeta> = (0..10_000)
             .map(|i| {
@@ -698,12 +696,7 @@ mod tests {
             .collect();
         let e = ProfileSecrets::default();
         s.insert_many(rows.iter().map(|m| (m, &e))).unwrap();
-        for q in [
-            "tag:shop health:<50",
-            "profile-0999",
-            "os:android",
-            "203.0.7",
-        ] {
+        for q in ["tag:shop health:<50", "profile-0999", "os:linux", "203.0.7"] {
             s.search(q, 50, 0).unwrap(); // warm the statement cache
             let t = std::time::Instant::now();
             let (r, _) = s.search(q, 50, 0).unwrap();

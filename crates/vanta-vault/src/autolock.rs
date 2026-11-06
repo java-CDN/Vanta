@@ -1,4 +1,4 @@
-//! Auto-lock policy (F09): pure logic, driven by the shell with millisecond timestamps.
+//! Auto-lock policy (F06): pure logic, driven by the shell with millisecond timestamps.
 
 /// Something that happened on the PC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,8 +13,6 @@ pub enum LockEvent {
     SessionLock,
     /// Laptop lid closed.
     LidClose,
-    /// Panic hotkey (F18).
-    Panic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +21,6 @@ pub enum LockReason {
     Suspend,
     SessionLock,
     LidClose,
-    Panic,
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +70,6 @@ impl AutoLock {
             LockEvent::Suspend => self.lock_on_suspend.then_some(LockReason::Suspend),
             LockEvent::SessionLock => self.lock_on_session_lock.then_some(LockReason::SessionLock),
             LockEvent::LidClose => self.lock_on_lid_close.then_some(LockReason::LidClose),
-            LockEvent::Panic => Some(LockReason::Panic),
         }
     }
 
@@ -137,7 +133,6 @@ mod tests {
             Some(LockReason::SessionLock)
         );
         assert_eq!(a.on_event(LockEvent::LidClose), Some(LockReason::LidClose));
-        assert_eq!(a.on_event(LockEvent::Panic), Some(LockReason::Panic));
         a.lock_on_lid_close = false;
         assert_eq!(a.on_event(LockEvent::LidClose), None);
     }

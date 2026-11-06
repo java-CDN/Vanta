@@ -48,7 +48,7 @@ pub fn verify_for_engine(
     Ok(p)
 }
 
-/// App-side check before spawning the engine (C031 + all other rules).
+/// App-side check before spawning the engine (C030 + all other rules).
 pub fn preflight(p: &Persona, engine: EngineVersion) -> Result<()> {
     if p.engine != engine {
         return Err(VantaError::VersionMismatch {

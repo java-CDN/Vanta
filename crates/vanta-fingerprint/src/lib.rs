@@ -1,5 +1,5 @@
 //! vanta-fingerprint: real-device personas, UA/UA-CH from the engine version (R5),
-//! consistency rules C001–C031, Ed25519-signed launch config (F02, F12, F20).
+//! consistency rules C001–C030, Ed25519-signed launch config (F02, F07).
 
 pub mod config;
 pub mod device;
