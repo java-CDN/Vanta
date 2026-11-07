@@ -8,7 +8,7 @@ use crate::settings::Settings;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use vanta_core::*;
 use vanta_proxy::{DohProvider, GuardPolicy, ProxyScheme};
 use vanta_store::ProfileMeta;
