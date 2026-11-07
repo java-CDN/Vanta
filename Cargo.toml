@@ -27,6 +27,8 @@ data-encoding = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 webpki-roots = "0.26"
+# Self-signed reflector certificate for vanta-health (ring backend, no aws-lc).
+rcgen = { version = "0.13", default-features = false, features = ["ring"] }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
 vanta-types = { path = "crates/vanta-types" }
 vanta-vault = { path = "crates/vanta-vault" }
@@ -35,6 +37,7 @@ vanta-fingerprint = { path = "crates/vanta-fingerprint" }
 vanta-proxy = { path = "crates/vanta-proxy" }
 vanta-log = { path = "crates/vanta-log" }
 vanta-launcher = { path = "crates/vanta-launcher" }
+vanta-health = { path = "crates/vanta-health" }
 
 [profile.release]
 lto = "thin"

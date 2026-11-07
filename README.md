@@ -46,9 +46,10 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `crates/vanta-vault` | Vault Lock (F06) and the activity-log key (F08). |
 | `crates/vanta-store` | SQLite + FTS5 profile database and search language (F01). |
 | `crates/vanta-fingerprint` | Real Windows device records, UA / UA-CH from the engine version, rules C001–C030, Ed25519-signed launch config (F02, F07). |
-| `crates/vanta-proxy` | Proxy Hub (F04): import grammar (`host:port`, `host:port:user:pass`, `user:pass@host:port`, `scheme://…` for http/https/socks5), username presets for Bright Data, SOAX, Geonode, DataImpulse, Webshare and Thordata with a sticky per-profile session, one-proxy-one-profile warning, offline launch gate, SOCKS5 UDP ASSOCIATE probe. Network Guard (F05): tokio relay on `127.0.0.1:<ephemeral>` with SOCKS5/HTTP(S) upstreams, DoH (Cloudflare/Google/Quad9 or custom, sent through the proxy), IPv6/LAN/UDP blocked, fail-closed kill switch. TLS is rustls + ring. |
+| `crates/vanta-proxy` | Proxy Hub (F04): import grammar (`host:port`, `host:port:user:pass`, `user:pass@host:port`, `scheme://…` for http/https/socks5), username presets for Bright Data, SOAX, Geonode, DataImpulse, Webshare and Thordata with a sticky per-profile session, one-proxy-one-profile warning, offline launch gate, SOCKS5 UDP ASSOCIATE probe. Network Guard (F05): tokio relay on `127.0.0.1:<ephemeral>` with SOCKS5/HTTP(S) upstreams, DoH (Cloudflare/Google/Quad9 or custom, sent through the proxy), IPv6/LAN/UDP blocked, fail-closed kill switch (5 s heartbeat), and a client check: on Windows only processes in the profile's engine Job Object may use its relay (owning PID via `GetExtendedTcpTable`). TLS is rustls + ring. |
 | `crates/vanta-log` | Activity Log (F08): append-only, SHA-256 hash chain, XChaCha20-Poly1305 at rest under the vault's log key, 90-day retention with an anchor so the pruned chain still verifies, filters by kind/profile/time. |
-| `crates/vanta-launcher` | Launcher skeleton: launch gate (proxy online, guard armed, rules passed, health ≥ 60), engine command line (no CDP), process status from the real child process, Windows Job Object kill-on-close. |
+| `crates/vanta-launcher` | Launcher skeleton: launch gate (proxy online, guard armed, rules passed, health ≥ 60), engine command line (no CDP), process status from the real child process, Windows Job Object kill-on-close. One job per profile doubles as the relay's client authorizer (`JobAuthorizer`, `IsProcessInJob`). |
+| `crates/vanta-health` | Health Check (F03), local-only: HTTPS reflector on `127.0.0.1` (rustls + ring, self-signed rcgen certificate) that parses the raw TLS ClientHello (JA4), the HTTP/2 client start (SETTINGS order, WINDOW_UPDATE, pseudo-header order) and HTTP/1.1 header order; STUN Binding responder (WebRTC leaks); DNS leak hook on the relay's resolver; static probe page (no CDP, no external fetch); 56 checks H01–H56 in 8 areas with a weighted 0–100 score. |
 | `engine/` | The engine (`vanta-chromium.exe`): pinned upstream, Vanta Chromium patches, GN flags, build scripts. See `engine/README.md`. |
 | `.github/workflows/engine-s1.yml`, `engine-s2.yml` | Engine CI stages S1 (patches apply, ubuntu) and S2 (`gn gen --check`, windows). |
 | `scripts/check.sh` | All local quality gates. |
@@ -101,6 +102,99 @@ DNS-over-HTTPS through the proxy (never the system resolver), refuses IPv6, LAN 
 (non-proxied UDP), and cuts every connection the moment the upstream proxy fails. It never
 falls back to a direct connection. The kill switch and the WebRTC rule
 (`disable_non_proxied_udp`) have no "off" value in the types, so no profile can disable them.
+
+Chromium cannot authenticate to a SOCKS5 proxy, so the relay checks the client instead: for
+every accepted connection it looks up the PID owning the client end (`GetExtendedTcpTable`,
+`TCP_TABLE_OWNER_PID_ALL`) and accepts it only if that process is in the profile's Job Object
+(`IsProcessInJob`), which every process the engine spawns inherits. Any other local process is
+cut before a byte is read and logged as a blocked event. The kill-switch heartbeat runs every
+5 s (configurable): each heartbeat is a fresh login at the proxy provider, and 1 s heartbeats
+(86,400 logins per profile per day) run into provider rate limits. Live traffic is still cut
+inside 1 s, because a failed tunnel or a dropped upstream trips the switch at once.
+
+## Health Check
+
+`crates/vanta-health` runs entirely on the PC. For one run it starts:
+
+- an HTTPS reflector at `https://vanta-health.localhost:<port>/` (Chrome maps `*.localhost` to
+  loopback and bypasses the proxy for it; the engine trusts exactly this run's key through
+  `--ignore-certificate-errors-spki-list`). It reads the ClientHello before TLS (JA4), the
+  HTTP/1.1 header order of the navigation, and, on a second `h2`-only port, the HTTP/2
+  SETTINGS / WINDOW_UPDATE / pseudo-header order;
+- a STUN responder on `127.0.0.1/udp`, used as the page's ICE server: with proxy-only WebRTC
+  and a proxy without UDP, no Binding Request may arrive;
+- a DNS leak test: unique `*.leak.vanta.invalid` names the page requests through the relay;
+  every one must show up at the relay's DoH resolver.
+
+The probe page collects navigator, UA-CH, screen, WebGL/WebGPU, canvas/audio/ClientRects
+stability, fonts, voices, codecs, worker and iframe values, WebRTC candidates and automation
+traces, and POSTs them back as JSON. The 56 checks are pure functions of that report, the
+captures, the persona and the Network Guard state. Score: 100 minus weighted penalties
+(critical 15/5, warn 8/3, info 3/1 for fail/warn); any critical Fail caps the score at 40;
+below 60 the launch is blocked. The TLS and HTTP/2 references are measured values for Chrome
+156 on Windows (`t13d1517h2_8daaf6152771_cb7bf5808d99`,
+`1:65536;2:0;4:6291456;6:262144|15663105|0|m,a,s,p`) and must be re-calibrated against the
+Vanta engine build.
+
+| ID | Key | Area | Severity | Check |
+|----|-----|------|----------|-------|
+| H01 | `net.exit` | Network & IP | critical | Exit IP matches the assigned proxy |
+| H02 | `net.direct` | Network & IP | critical | No direct-IP leak |
+| H03 | `net.asn` | Network & IP | info | Exit ASN is a residential / ISP network |
+| H04 | `net.black` | Network & IP | info | Exit IP not on public blacklists |
+| H05 | `net.geo` | Network & IP | critical | Exit country = profile timezone & locale |
+| H06 | `net.reach` | Network & IP | critical | Proxy reachable at launch |
+| H07 | `net.sticky` | Network & IP | info | Sticky session keeps the same exit IP |
+| H08 | `net.ipv6` | Network & IP | warn | IPv6 path blocked |
+| H09 | `net.hdr` | Network & IP | warn | No proxy-revealing headers |
+| H10 | `net.lan` | Network & IP | warn | Local network not reachable from pages |
+| H11 | `tls.ja4` | TLS / HTTP2 / QUIC | warn | TLS ClientHello JA4 = Chrome reference |
+| H12 | `tls.alpn` | TLS / HTTP2 / QUIC | warn | ALPN offers h2, http/1.1 |
+| H13 | `tls.h2set` | TLS / HTTP2 / QUIC | warn | HTTP/2 SETTINGS frame = Chrome |
+| H14 | `tls.pseudo` | TLS / HTTP2 / QUIC | warn | HTTP/2 pseudo-header order = Chrome |
+| H15 | `tls.hdr` | TLS / HTTP2 / QUIC | warn | Request header order = Chrome |
+| H16 | `tls.quic` | TLS / HTTP2 / QUIC | warn | QUIC handled correctly for this proxy |
+| H17 | `rtc.pub` | WebRTC & DNS | critical | WebRTC public candidate = exit IP |
+| H18 | `rtc.host` | WebRTC & DNS | critical | No host (local IP) candidate exposed |
+| H19 | `rtc.mdns` | WebRTC & DNS | info | mDNS candidates behave like Chrome |
+| H20 | `dns.doh` | WebRTC & DNS | critical | DNS goes through DoH via the relay |
+| H21 | `dns.leak` | WebRTC & DNS | critical | No DNS query outside DoH |
+| H22 | `rtc.stun` | WebRTC & DNS | warn | STUN traffic goes through the proxy |
+| H23 | `nav.ua` | Navigator & UA-CH | critical | User-Agent version = engine |
+| H24 | `nav.brands` | Navigator & UA-CH | warn | Sec-CH-UA brand list is valid |
+| H25 | `nav.pv` | Navigator & UA-CH | warn | UA-CH platform & platformVersion match the OS |
+| H26 | `nav.platform` | Navigator & UA-CH | warn | navigator.platform = Win32 |
+| H27 | `nav.cores` | Navigator & UA-CH | warn | hardwareConcurrency plausible for the device |
+| H28 | `nav.mem` | Navigator & UA-CH | warn | deviceMemory ≤ 8 and = record |
+| H29 | `nav.lang` | Navigator & UA-CH | warn | navigator.languages = Accept-Language |
+| H30 | `nav.worker` | Navigator & UA-CH | warn | Web Worker sees the same navigator |
+| H31 | `nav.iframe` | Navigator & UA-CH | warn | iframes see the same navigator |
+| H32 | `gfx.pair` | Graphics | warn | WebGL vendor matches renderer |
+| H33 | `gfx.d3d` | Graphics | warn | Renderer is a Windows D3D ANGLE string |
+| H34 | `gfx.params` | Graphics | info | WebGL parameters match the device |
+| H35 | `gfx.ext` | Graphics | info | WebGL extension list matches real devices |
+| H36 | `gfx.canvas` | Graphics | warn | Canvas render stable across 3 reads |
+| H37 | `gfx.webgpu` | Graphics | warn | WebGPU adapter info = WebGL vendor |
+| H38 | `gfx.screen` | Graphics | warn | Screen & available size plausible |
+| H39 | `gfx.dpr` | Graphics | warn | devicePixelRatio consistent with screen |
+| H40 | `aud.ctx` | Audio & media | warn | AudioContext output stable per profile |
+| H41 | `aud.dev` | Audio & media | warn | Media device counts plausible |
+| H42 | `aud.voices` | Audio & media | info | Speech voices match Windows |
+| H43 | `aud.codec` | Audio & media | info | Codec support = Chrome on Windows |
+| H44 | `fnt.list` | Fonts & layout | warn | Font list is the record's Windows set |
+| H45 | `fnt.os` | Fonts & layout | warn | Fonts match the Windows version |
+| H46 | `fnt.rects` | Fonts & layout | warn | ClientRects stable across reads |
+| H47 | `fnt.emoji` | Fonts & layout | info | Emoji font is Segoe UI Emoji |
+| H48 | `fnt.metrics` | Fonts & layout | warn | Text metrics equal in page and worker |
+| H49 | `aut.webdriver` | Automation flags | critical | navigator.webdriver is false |
+| H50 | `aut.cdp` | Automation flags | critical | No DevTools protocol traces |
+| H51 | `aut.headless` | Automation flags | warn | No headless tokens in UA or window |
+| H52 | `aut.chrome` | Automation flags | warn | window.chrome object present |
+| H53 | `aut.perm` | Automation flags | warn | Permissions API consistent |
+| H54 | `aut.plugins` | Automation flags | info | plugins & mimeTypes = Chrome PDF viewer |
+| H55 | `aut.ext` | Automation flags | warn | No automation globals or extensions |
+| H56 | `aut.notif` | Automation flags | info | Notification.permission = default |
+
 
 ## Develop
 

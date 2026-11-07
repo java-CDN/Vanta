@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<title>Vanta Health Check</title>
+<style>body{font:14px system-ui,sans-serif;margin:2em;color:#222}#s{color:#555}</style>
+</head>
+<body>
+<h1>Vanta Health Check</h1>
+<p id="s">Running local checks&hellip;</p>
+<span id="r" style="position:absolute;left:-9999px;font:16px Arial">Vanta mmmmmmmmmmlli 0123</span>
+<script>
+'use strict';
+const CFG = /*VANTA_CONFIG*/{};
+const out = { token: CFG.token, dnsNames: [] };
+const enc = new TextEncoder();
+async function sha(s) {
+  const d = await crypto.subtle.digest('SHA-256', typeof s === 'string' ? enc.encode(s) : s);
+  return Array.from(new Uint8Array(d).slice(0, 12)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function safe(f, d) { try { return f(); } catch (e) { return d; } }
+async function safeA(f, d) { try { return await f(); } catch (e) { return d; } }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function navValues(n, tz) {
+  return {
+    ua: n.userAgent, platform: n.platform, languages: Array.from(n.languages || []),
+    hardwareConcurrency: n.hardwareConcurrency || 0,
+    deviceMemory: n.deviceMemory === undefined ? null : n.deviceMemory,
+    timezone: tz, webdriver: n.webdriver === undefined ? null : n.webdriver
+  };
+}
+
+function textMetric(ctx) {
+  ctx.font = '16px Arial';
+  const w = ['Vanta mmmmmmmmmmlli', 'WWWwww 0123456789', '\u00e9\u00e8\u00ea \u4e2d\u6587'].map(t => ctx.measureText(t).width);
+  return w.map(x => x.toFixed(3)).join(',');
+}
+
+async function canvasRead() {
+  const c = document.createElement('canvas'); c.width = 280; c.height = 60;
+  const x = c.getContext('2d');
+  x.textBaseline = 'top'; x.font = '14px Arial'; x.fillStyle = '#f60'; x.fillRect(100, 1, 62, 20);
+  x.fillStyle = '#069'; x.fillText('Vanta \u263a canvas 1.0', 2, 15);
+  x.fillStyle = 'rgba(102,204,0,0.7)'; x.fillText('Vanta \u263a canvas 1.0', 4, 17);
+  x.beginPath(); x.arc(50, 30, 20, 0, Math.PI * 2); x.stroke();
+  return sha(c.toDataURL());
+}
+
+async function audioRead() {
+  const C = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!C) return null;
+  const ctx = new C(1, 5000, 44100);
+  const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 10000;
+  const k = ctx.createDynamicsCompressor();
+  k.threshold.value = -50; k.knee.value = 40; k.ratio.value = 12; k.attack.value = 0; k.release.value = 0.25;
+  o.connect(k); k.connect(ctx.destination); o.start(0);
+  const buf = await ctx.startRendering();
+  const d = buf.getChannelData(0); let s = 0;
+  for (let i = 4500; i < 5000; i++) s += Math.abs(d[i]);
+  return sha(s.toString());
+}
+
+function fontsPresent(list) {
+  const base = ['monospace', 'sans-serif', 'serif'];
+  const span = document.createElement('span');
+  span.style.cssText = 'position:absolute;left:-9999px;font-size:72px';
+  span.textContent = 'mmmmmmmmmmlli WwQq 0123';
+  document.body.appendChild(span);
+  const w = {};
+  for (const b of base) { span.style.fontFamily = b; w[b] = [span.offsetWidth, span.offsetHeight]; }
+  const found = [];
+  for (const f of list) {
+    for (const b of base) {
+      span.style.fontFamily = '"' + f + '",' + b;
+      if (span.offsetWidth !== w[b][0] || span.offsetHeight !== w[b][1]) { found.push(f); break; }
+    }
+  }
+  span.remove();
+  return found;
+}
+
+function webgl() {
+  const c = document.createElement('canvas');
+  const g = c.getContext('webgl') || c.getContext('experimental-webgl');
+  if (!g) return null;
+  const dbg = g.getExtension('WEBGL_debug_renderer_info');
+  return {
+    vendor: dbg ? g.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : g.getParameter(g.VENDOR),
+    renderer: dbg ? g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER),
+    maxTextureSize: g.getParameter(g.MAX_TEXTURE_SIZE),
+    extensions: g.getSupportedExtensions() || []
+  };
+}
+
+async function webgpu() {
+  if (!navigator.gpu) return null;
+  const a = await navigator.gpu.requestAdapter();
+  if (!a) return null;
+  const i = a.info || (a.requestAdapterInfo ? await a.requestAdapterInfo() : {});
+  return { vendor: i.vendor || '', architecture: i.architecture || '' };
+}
+
+async function voices() {
+  if (!window.speechSynthesis) return [];
+  let v = speechSynthesis.getVoices();
+  if (!v.length) {
+    await Promise.race([new Promise(r => speechSynthesis.addEventListener('voiceschanged', r, { once: true })), sleep(800)]);
+    v = speechSynthesis.getVoices();
+  }
+  return v.map(x => x.name);
+}
+
+async function media() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return null;
+  const d = await navigator.mediaDevices.enumerateDevices();
+  const c = { audioinput: 0, audiooutput: 0, videoinput: 0 };
+  for (const x of d) if (x.kind in c) c[x.kind]++;
+  return c;
+}
+
+function codecs() {
+  const v = document.createElement('video'), a = document.createElement('audio'), r = {};
+  for (const t of ['video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp9"', 'video/webm; codecs="vp8"', 'video/mp4; codecs="av01.0.05M.08"'])
+    r[t] = v.canPlayType(t);
+  for (const t of ['audio/mpeg', 'audio/mp4; codecs="mp4a.40.2"', 'audio/ogg; codecs="opus"', 'audio/ogg; codecs="vorbis"', 'audio/wav; codecs="1"'])
+    r[t] = a.canPlayType(t);
+  return r;
+}
+
+async function rtc() {
+  const r = { available: typeof RTCPeerConnection === 'function', candidates: [] };
+  if (!r.available) return r;
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: CFG.stunUrl }] });
+  pc.onicecandidate = e => { if (e.candidate && e.candidate.candidate) r.candidates.push(e.candidate.candidate); };
+  pc.createDataChannel('v');
+  await pc.setLocalDescription(await pc.createOffer());
+  await Promise.race([new Promise(res => { pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') res(); }; }), sleep(1500)]);
+  pc.close();
+  return r;
+}
+
+function worker() {
+  const src = `
+    onmessage = () => {
+      const n = self.navigator;
+      let tm = null;
+      try { const c = new OffscreenCanvas(10, 10).getContext('2d'); c.font = '16px Arial';
+        tm = ['Vanta mmmmmmmmmmlli', 'WWWwww 0123456789', '\\u00e9\\u00e8\\u00ea \\u4e2d\\u6587'].map(t => c.measureText(t).width.toFixed(3)).join(','); } catch (e) {}
+      postMessage({ ua: n.userAgent, platform: n.platform, languages: Array.from(n.languages || []),
+        hardwareConcurrency: n.hardwareConcurrency || 0, deviceMemory: n.deviceMemory === undefined ? null : n.deviceMemory,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, webdriver: n.webdriver === undefined ? null : n.webdriver, textMetrics: tm });
+    };`;
+  return new Promise(res => {
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    const t = setTimeout(() => res(null), 1500);
+    w.onmessage = e => { clearTimeout(t); w.terminate(); res(e.data); };
+    w.onerror = () => { clearTimeout(t); res(null); };
+    w.postMessage(0);
+  });
+}
+
+function iframe() {
+  return new Promise(res => {
+    const f = document.createElement('iframe');
+    f.style.display = 'none'; f.srcdoc = '<!doctype html><p>i</p>';
+    f.onload = () => {
+      const w = f.contentWindow;
+      const v = safe(() => navValues(w.navigator, w.Intl.DateTimeFormat().resolvedOptions().timeZone), null);
+      f.remove(); res(v);
+    };
+    document.body.appendChild(f);
+  });
+}
+
+function cdpTrace() {
+  let hit = false;
+  const e = new Error('v');
+  Object.defineProperty(e, 'stack', { configurable: true, get() { hit = true; return ''; } });
+  console.debug(e);
+  return hit;
+}
+
+function automationGlobals() {
+  const re = /^(cdc_|\$cdc_|__webdriver|__selenium|__fxdriver|__driver_|_selenium|__playwright|__pw|__puppeteer|_phantom|callPhantom|domAutomation|_Selenium_IDE_Recorder|__nightmare)/;
+  return Object.getOwnPropertyNames(window).filter(k => re.test(k))
+    .concat(Object.getOwnPropertyNames(document).filter(k => re.test(k)));
+}
+
+async function dnsLeak() {
+  for (const u of CFG.dnsUrls || []) {
+    out.dnsNames.push(new URL(u).hostname);
+    await safeA(() => Promise.race([fetch(u, { mode: 'no-cors', cache: 'no-store' }), sleep(1500)]), null);
+  }
+}
+
+async function run() {
+  const n = navigator, tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  Object.assign(out, navValues(n, tz));
+  out.vendor = n.vendor; out.language = n.language; out.maxTouchPoints = n.maxTouchPoints || 0;
+  out.intlLocale = Intl.DateTimeFormat().resolvedOptions().locale;
+  if (n.userAgentData) {
+    const u = n.userAgentData;
+    const h = await safeA(() => u.getHighEntropyValues(['platformVersion', 'architecture', 'bitness', 'model', 'wow64', 'fullVersionList']), {});
+    out.uaData = { brands: u.brands, mobile: u.mobile, platform: u.platform, platformVersion: h.platformVersion,
+      architecture: h.architecture, bitness: h.bitness, model: h.model, wow64: h.wow64, fullVersionList: h.fullVersionList || [] };
+  }
+  const s = screen;
+  out.screen = { width: s.width, height: s.height, availWidth: s.availWidth, availHeight: s.availHeight, colorDepth: s.colorDepth };
+  out.devicePixelRatio = window.devicePixelRatio;
+  out.window = { outerWidth: outerWidth, outerHeight: outerHeight, innerWidth: innerWidth, innerHeight: innerHeight };
+  out.webgl = safe(webgl, null);
+  out.webgpu = await safeA(webgpu, null);
+  out.canvas = []; for (let i = 0; i < 3; i++) out.canvas.push(await safeA(canvasRead, ''));
+  out.audio = []; for (let i = 0; i < 2; i++) { const a = await safeA(audioRead, null); if (a) out.audio.push(a); }
+  out.rects = [];
+  for (let i = 0; i < 2; i++) out.rects.push(await sha(JSON.stringify(Array.from(document.getElementById('r').getClientRects()).map(r => [r.x, r.y, r.width, r.height]))));
+  out.textMetrics = safe(() => textMetric(document.createElement('canvas').getContext('2d')), null);
+  out.fontsTested = CFG.fonts || [];
+  out.fonts = safe(() => fontsPresent(out.fontsTested), []);
+  out.media = await safeA(media, null);
+  out.voices = await safeA(voices, []);
+  out.codecs = safe(codecs, {});
+  out.worker = await safeA(worker, null);
+  out.iframe = await safeA(iframe, null);
+  out.rtc = await safeA(rtc, { available: false, candidates: [] });
+  out.chromeObject = typeof window.chrome === 'object' && window.chrome !== null;
+  out.plugins = n.plugins ? n.plugins.length : 0;
+  out.mimeTypes = n.mimeTypes ? n.mimeTypes.length : 0;
+  out.notificationPermission = typeof Notification === 'function' ? Notification.permission : '';
+  out.permissionQuery = await safeA(async () => (await n.permissions.query({ name: 'notifications' })).state, '');
+  out.cdpTrace = safe(cdpTrace, false);
+  out.automationGlobals = safe(automationGlobals, []);
+  await safeA(() => fetch(CFG.h2Url, { mode: 'no-cors', cache: 'no-store' }), null);
+  await dnsLeak();
+  await fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(out) });
+  document.getElementById('s').textContent = 'Done. You can close this tab.';
+}
+run().catch(e => { document.getElementById('s').textContent = 'Probe error: ' + e; });
+</script>
+</body>
+</html>

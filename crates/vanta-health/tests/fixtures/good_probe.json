@@ -1,0 +1,253 @@
+{
+  "audio": [
+    "1b2c3d4e5f60718293a4b5c6",
+    "1b2c3d4e5f60718293a4b5c6"
+  ],
+  "automationGlobals": [],
+  "canvas": [
+    "9f3a61c0d2e4b5a6c7d8e9f0",
+    "9f3a61c0d2e4b5a6c7d8e9f0",
+    "9f3a61c0d2e4b5a6c7d8e9f0"
+  ],
+  "cdpTrace": false,
+  "chromeObject": true,
+  "codecs": {
+    "audio/mp4; codecs=\"mp4a.40.2\"": "probably",
+    "audio/mpeg": "probably",
+    "audio/ogg; codecs=\"opus\"": "probably",
+    "audio/ogg; codecs=\"vorbis\"": "probably",
+    "audio/wav; codecs=\"1\"": "probably",
+    "video/mp4; codecs=\"av01.0.05M.08\"": "probably",
+    "video/mp4; codecs=\"avc1.42E01E\"": "probably",
+    "video/webm; codecs=\"vp8\"": "probably",
+    "video/webm; codecs=\"vp9\"": "probably"
+  },
+  "deviceMemory": 8.0,
+  "devicePixelRatio": 1.0,
+  "dnsNames": [],
+  "fonts": [
+    "Arial",
+    "Calibri",
+    "Cambria",
+    "Candara",
+    "Comic Sans MS",
+    "Consolas",
+    "Courier New",
+    "Ebrima",
+    "Gadugi",
+    "Georgia",
+    "Impact",
+    "Lucida Console",
+    "MS Gothic",
+    "Marlett",
+    "Palatino Linotype",
+    "Segoe UI",
+    "Segoe UI Emoji",
+    "Segoe UI Symbol",
+    "Sylfaen",
+    "Tahoma",
+    "Times New Roman",
+    "Trebuchet MS",
+    "Verdana"
+  ],
+  "fontsTested": [
+    "Arial",
+    "Calibri",
+    "Cambria",
+    "Candara",
+    "Comic Sans MS",
+    "Consolas",
+    "Courier New",
+    "Ebrima",
+    "Gadugi",
+    "Georgia",
+    "Impact",
+    "Lucida Console",
+    "MS Gothic",
+    "Marlett",
+    "Palatino Linotype",
+    "Segoe UI",
+    "Segoe UI Emoji",
+    "Segoe UI Symbol",
+    "Sylfaen",
+    "Tahoma",
+    "Times New Roman",
+    "Trebuchet MS",
+    "Verdana",
+    "Segoe UI Variable",
+    "Segoe Fluent Icons",
+    "Helvetica Neue",
+    "Menlo",
+    "Monaco",
+    "Geneva",
+    "Ubuntu",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Cantarell",
+    "Noto Color Emoji",
+    "Apple Color Emoji"
+  ],
+  "hardwareConcurrency": 12,
+  "iframe": {
+    "deviceMemory": 8.0,
+    "hardwareConcurrency": 12,
+    "languages": [
+      "de-DE",
+      "de",
+      "en-US",
+      "en"
+    ],
+    "platform": "Win32",
+    "textMetrics": "151.234,162.008,48.500",
+    "timezone": "Europe/Berlin",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "webdriver": false
+  },
+  "intlLocale": "de-DE",
+  "language": "de-DE",
+  "languages": [
+    "de-DE",
+    "de",
+    "en-US",
+    "en"
+  ],
+  "maxTouchPoints": 0,
+  "media": {
+    "audioinput": 1,
+    "audiooutput": 1,
+    "videoinput": 1
+  },
+  "mimeTypes": 2,
+  "notificationPermission": "default",
+  "permissionQuery": "prompt",
+  "platform": "Win32",
+  "plugins": 5,
+  "rects": [
+    "a1b2c3d4e5f6a7b8c9d0e1f2",
+    "a1b2c3d4e5f6a7b8c9d0e1f2"
+  ],
+  "rtc": {
+    "available": true,
+    "candidates": []
+  },
+  "screen": {
+    "availHeight": 1040,
+    "availWidth": 1920,
+    "colorDepth": 24,
+    "height": 1080,
+    "width": 1920
+  },
+  "textMetrics": "151.234,162.008,48.500",
+  "timezone": "Europe/Berlin",
+  "token": "t0",
+  "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "uaData": {
+    "architecture": "x86",
+    "bitness": "64",
+    "brands": [
+      {
+        "brand": "Not:A-Brand",
+        "version": "8"
+      },
+      {
+        "brand": "Chromium",
+        "version": "156"
+      },
+      {
+        "brand": "Google Chrome",
+        "version": "156"
+      }
+    ],
+    "fullVersionList": [
+      {
+        "brand": "Not:A-Brand",
+        "version": "8.0.0.0"
+      },
+      {
+        "brand": "Chromium",
+        "version": "156.0.8078.79"
+      },
+      {
+        "brand": "Google Chrome",
+        "version": "156.0.8078.79"
+      }
+    ],
+    "mobile": false,
+    "model": "",
+    "platform": "Windows",
+    "platformVersion": "10.0.0",
+    "wow64": false
+  },
+  "vendor": "Google Inc.",
+  "voices": [
+    "Microsoft Hedda - German (Germany)",
+    "Microsoft David - English (United States)",
+    "Microsoft Zira - English (United States)"
+  ],
+  "webdriver": false,
+  "webgl": {
+    "extensions": [
+      "ANGLE_instanced_arrays",
+      "EXT_blend_minmax",
+      "EXT_clip_control",
+      "EXT_color_buffer_half_float",
+      "EXT_depth_clamp",
+      "EXT_disjoint_timer_query",
+      "EXT_float_blend",
+      "EXT_frag_depth",
+      "EXT_polygon_offset_clamp",
+      "EXT_shader_texture_lod",
+      "EXT_texture_compression_bptc",
+      "EXT_texture_compression_rgtc",
+      "EXT_texture_filter_anisotropic",
+      "EXT_texture_mirror_clamp_to_edge",
+      "EXT_sRGB",
+      "KHR_parallel_shader_compile",
+      "OES_element_index_uint",
+      "OES_fbo_render_mipmap",
+      "OES_standard_derivatives",
+      "OES_texture_float",
+      "OES_texture_float_linear",
+      "OES_texture_half_float",
+      "OES_texture_half_float_linear",
+      "OES_vertex_array_object",
+      "WEBGL_blend_func_extended",
+      "WEBGL_color_buffer_float",
+      "WEBGL_compressed_texture_s3tc",
+      "WEBGL_compressed_texture_s3tc_srgb",
+      "WEBGL_debug_renderer_info",
+      "WEBGL_debug_shaders",
+      "WEBGL_depth_texture",
+      "WEBGL_draw_buffers",
+      "WEBGL_lose_context"
+    ],
+    "maxTextureSize": 16384,
+    "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "vendor": "Google Inc. (NVIDIA)"
+  },
+  "webgpu": {
+    "architecture": "ampere",
+    "vendor": "nvidia"
+  },
+  "window": {
+    "innerHeight": 937,
+    "innerWidth": 1920,
+    "outerHeight": 1040,
+    "outerWidth": 1920
+  },
+  "worker": {
+    "deviceMemory": 8.0,
+    "hardwareConcurrency": 12,
+    "languages": [
+      "de-DE",
+      "de",
+      "en-US",
+      "en"
+    ],
+    "platform": "Win32",
+    "textMetrics": "151.234,162.008,48.500",
+    "timezone": "Europe/Berlin",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "webdriver": false
+  }
+}
