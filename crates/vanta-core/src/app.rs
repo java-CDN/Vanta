@@ -23,8 +23,8 @@ use vanta_launcher::{
 use vanta_log::{ActivityLog, LogFilter, LogKind};
 use vanta_proxy::state::{now_ms, MAX_CHECK_AGE_MS};
 use vanta_proxy::{
-    check_assignment, parse_line, parse_list, probe, resolve_upstream, Credentials, GuardPolicy,
-    ProxyEndpoint, ProxyScheme, ProxyState, Relay, RelayConfig, RelayEvent, Resolver,
+    check_assignment, parse_line, parse_list, probe, resolve_upstream, Credentials, DohProvider,
+    GuardPolicy, ProxyEndpoint, ProxyScheme, ProxyState, Relay, RelayConfig, RelayEvent, Resolver,
     DEFAULT_HEARTBEAT,
 };
 use vanta_store::{HealthSummary, ProfileMeta, ProfileSecrets, ProxyRecord, Store};
@@ -482,7 +482,11 @@ impl VantaApp {
             lock(&self.inner.store).get_proxy(p)?;
         }
         let locale = new.locale.clone().unwrap_or_else(|| "en-US".into());
-        let persona = self.new_persona(new.os, &locale, rand::random())?;
+        let seed = match &new.seed {
+            Some(s) => parse_seed(s)?,
+            None => rand::random(),
+        };
+        let persona = self.new_persona(new.os, &locale, seed)?;
         let mut meta = ProfileMeta::new(new.name, persona.os, now_ms());
         meta.folder = new.folder;
         meta.tags = new.tags;
@@ -544,6 +548,62 @@ impl VantaApp {
             let _ = std::fs::remove_dir_all(self.user_data_dir(*id));
         }
         Ok(n)
+    }
+
+    /// Fingerprint Studio: the profile's persona bound to the installed engine, with the
+    /// result of every consistency rule.
+    pub fn fingerprint(&self, id: ProfileId) -> CoreResult<FingerprintView> {
+        self.require_unlocked()?;
+        let mut persona = self.load_config(id)?.persona;
+        persona.bind_engine(self.inner.cfg.engine.version);
+        Ok(fingerprint_view(&persona, self.inner.cfg.engine.version))
+    }
+
+    /// New Profile form: the persona `create_profile` will build for the same OS, locale
+    /// and seed (hex). Nothing is stored.
+    pub fn preview_fingerprint(
+        &self,
+        os: Option<OsKind>,
+        locale: Option<&str>,
+        seed: &str,
+    ) -> CoreResult<FingerprintView> {
+        let persona = self.new_persona(os, locale.unwrap_or("en-US"), parse_seed(seed)?)?;
+        Ok(fingerprint_view(&persona, self.inner.cfg.engine.version))
+    }
+
+    /// The profile's Network Guard policy (kill switch and WebRTC rule are fixed).
+    pub fn guard_policy(&self, id: ProfileId) -> CoreResult<GuardPolicy> {
+        self.require_unlocked()?;
+        Ok(self.load_config(id)?.policy)
+    }
+
+    /// Change the profile's DoH provider (the only configurable guard). Its health run no
+    /// longer applies (the DNS checks ran against the old provider).
+    pub fn set_doh_provider(&self, id: ProfileId, doh: DohProvider) -> CoreResult<GuardPolicy> {
+        self.require_unlocked()?;
+        let mut cfg = self.load_config(id)?;
+        cfg.policy.doh = doh;
+        self.save_config(id, &cfg)?;
+        let store = lock(&self.inner.store);
+        let mut m = store.get(id)?;
+        m.health = 0;
+        store.update_meta(&m)?;
+        store.clear_health(id)?;
+        Ok(cfg.policy)
+    }
+
+    /// Re-wrap the vault key under a new master password. The current password is checked
+    /// on a copy of the header, so a wrong one changes nothing.
+    pub fn change_password(&self, current: &str, new_password: &str) -> CoreResult<()> {
+        self.require_unlocked()?;
+        let mut slot = lock(&self.inner.vault);
+        let v = slot.as_mut().ok_or(CoreError::NotInitialized)?;
+        Vault::from_header(v.header().clone()).unlock(current)?;
+        v.change_password(new_password)?;
+        self.write_header(v)?;
+        drop(slot);
+        self.log(LogKind::VaultUnlock, None, "master password changed");
+        Ok(())
     }
 
     /// New device and seeds for the profile (same locale and geo); its health run no
@@ -1422,6 +1482,80 @@ impl Inner {
 }
 
 /// Where the app keeps a profile's launch config while it runs (for tests and support).
+fn parse_seed(s: &str) -> CoreResult<u64> {
+    let t = s.trim();
+    let t = t
+        .strip_prefix("0x")
+        .or_else(|| t.strip_prefix("0X"))
+        .unwrap_or(t);
+    if t.is_empty() || t.len() > 16 {
+        return Err(CoreError::Invalid {
+            message: format!("seed '{s}' is not a 64-bit hex value"),
+        });
+    }
+    u64::from_str_radix(t, 16).map_err(|_| CoreError::Invalid {
+        message: format!("seed '{s}' is not a 64-bit hex value"),
+    })
+}
+
+fn fingerprint_view(p: &Persona, installed: EngineVersion) -> FingerprintView {
+    use vanta_fingerprint::rules::{check, Level};
+    FingerprintView {
+        device_id: p.device_id.clone(),
+        os: p.os,
+        engine: p.engine.to_string(),
+        user_agent: p.user_agent.clone(),
+        sec_ch_ua: p.sec_ch_ua(),
+        navigator_platform: p.platform.clone(),
+        ua_platform: p.ua_ch.platform.clone(),
+        platform_version: p.ua_ch.platform_version.clone(),
+        architecture: p.ua_ch.architecture.clone(),
+        bitness: p.ua_ch.bitness.clone(),
+        screen_width: p.screen.width,
+        screen_height: p.screen.height,
+        avail_width: p.screen.avail_width,
+        avail_height: p.screen.avail_height,
+        color_depth: p.screen.color_depth,
+        device_pixel_ratio: p.device_pixel_ratio,
+        hardware_concurrency: p.hardware_concurrency,
+        device_memory: p.device_memory,
+        max_touch_points: p.max_touch_points,
+        gpu_vendor: p.gpu.vendor.clone(),
+        gpu_renderer: p.gpu.renderer.clone(),
+        webgpu_vendor: p.gpu.webgpu_vendor.clone(),
+        webgpu_arch: p.gpu.webgpu_arch.clone(),
+        fonts: p.fonts.clone(),
+        microphones: p.media_devices.audioinput,
+        cameras: p.media_devices.videoinput,
+        speakers: p.media_devices.audiooutput,
+        locale: p.locale.clone(),
+        languages: p.languages.clone(),
+        accept_language: p.accept_language(),
+        timezone: p.geo.as_ref().map(|g| g.timezone.clone()),
+        country: p.geo.as_ref().map(|g| g.country.clone()),
+        latitude: p.geo.as_ref().map(|g| g.latitude),
+        longitude: p.geo.as_ref().map(|g| g.longitude),
+        canvas: p.canvas,
+        webgl_image: p.webgl_image,
+        audio: p.audio,
+        webrtc_policy: p.webrtc_policy.clone(),
+        seed_prefix: format!("{:016X}", p.seed)[..4].to_string(),
+        rules: check(p, installed)
+            .into_iter()
+            .map(|r| RuleView {
+                id: r.id.to_string(),
+                level: match r.level {
+                    Level::Pass => "pass",
+                    Level::Note => "note",
+                    Level::Fail => "fail",
+                }
+                .into(),
+                message: r.message,
+            })
+            .collect(),
+    }
+}
+
 pub fn launch_config_path(data_dir: &Path, id: ProfileId) -> PathBuf {
     data_dir
         .join("run")

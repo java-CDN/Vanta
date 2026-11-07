@@ -18,12 +18,13 @@ use vanta_launcher::{EngineProcess, KillOnCloseJob};
 use vanta_log::LogKind;
 use vanta_proxy::doh::BoxFuture;
 use vanta_proxy::net::NetResult;
+use vanta_proxy::DohProvider;
 use vanta_proxy::{
     AllowedClients, GuardPolicy, PidLookup, ProxyEndpoint, ProxyScheme, ProxyState, Resolver,
     UnknownPid,
 };
 use vanta_store::HealthSummary;
-use vanta_types::{EngineVersion, ProfileId, ProfileStatus};
+use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus};
 use vanta_vault::KdfParams;
 
 const ENGINE: EngineVersion = EngineVersion::new(156, 0, 8078, 79);
@@ -1169,4 +1170,125 @@ fn app_futures_are_send_for_the_tauri_runtime() {
     send(&f2);
     let f3 = e.app.test_proxy("x");
     send(&f3);
+}
+
+// ---- shell-facing additions: fingerprint view, preview seed, DoH, password change -----
+
+#[test]
+fn preview_is_the_persona_create_profile_saves() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    let seed = "0x1234ABCD5678EF90";
+    let pv = e
+        .app
+        .preview_fingerprint(Some(OsKind::Windows11), Some("de-DE"), seed)
+        .unwrap();
+    let p = e
+        .app
+        .create_profile(NewProfile {
+            name: "preview-1".into(),
+            os: Some(OsKind::Windows11),
+            locale: Some("de-DE".into()),
+            seed: Some(seed.into()),
+            ..Default::default()
+        })
+        .unwrap();
+    let fp = e.app.fingerprint(p.id).unwrap();
+    assert_eq!(fp.device_id, pv.device_id);
+    assert_eq!(fp.gpu_renderer, pv.gpu_renderer);
+    assert_eq!(fp.user_agent, pv.user_agent);
+    assert_eq!(fp.seed_prefix, "1234");
+    assert_eq!(fp.engine, ENGINE.to_string());
+    assert_eq!(fp.os, OsKind::Windows11);
+    assert_eq!(fp.rules.len(), 30);
+    assert!(fp.rules.iter().all(|r| r.level != "fail"), "{:?}", fp.rules);
+    // Same seed, same device; another seed may differ but is always valid.
+    let again = e
+        .app
+        .preview_fingerprint(Some(OsKind::Windows11), Some("de-DE"), "1234abcd5678ef90")
+        .unwrap();
+    assert_eq!(again.device_id, pv.device_id);
+}
+
+#[test]
+fn bad_seed_is_refused() {
+    let e = env();
+    for s in ["", "xyz", "0x", "12345678901234567"] {
+        assert!(
+            matches!(
+                e.app.preview_fingerprint(None, None, s),
+                Err(CoreError::Invalid { .. })
+            ),
+            "{s}"
+        );
+    }
+}
+
+#[test]
+fn fingerprint_needs_the_unlocked_vault() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    let p = e
+        .app
+        .create_profile(NewProfile {
+            name: "fp-locked".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    e.app.lock().unwrap();
+    assert!(matches!(e.app.fingerprint(p.id), Err(CoreError::Locked)));
+    assert!(matches!(e.app.guard_policy(p.id), Err(CoreError::Locked)));
+}
+
+#[test]
+fn doh_provider_change_is_stored_and_clears_health() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    let imp = e
+        .app
+        .import_proxies("socks5://u:p@127.0.0.1:1080", ProxyScheme::Socks5)
+        .unwrap();
+    let proxy = imp.added[0].id.clone();
+    let p = e
+        .app
+        .create_profile(NewProfile {
+            name: "doh-1".into(),
+            proxy_id: Some(proxy.clone()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        e.app.guard_policy(p.id).unwrap().doh,
+        DohProvider::Cloudflare
+    );
+    fresh_health(&e, p.id, &proxy, 95);
+    let pol = e.app.set_doh_provider(p.id, DohProvider::Quad9).unwrap();
+    assert_eq!(pol.doh, DohProvider::Quad9);
+    assert_eq!(e.app.guard_policy(p.id).unwrap().doh, DohProvider::Quad9);
+    assert!(e.app.get_profile(p.id).unwrap().health.is_none());
+}
+
+#[test]
+fn change_password_checks_the_current_one() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    assert!(matches!(
+        e.app
+            .change_password("not the password", "a brand new passphrase"),
+        Err(CoreError::Crypto)
+    ));
+    assert!(matches!(
+        e.app.change_password(MASTER, "short"),
+        Err(CoreError::Invalid { .. })
+    ));
+    e.app
+        .change_password(MASTER, "a brand new passphrase")
+        .unwrap();
+    e.app.lock().unwrap();
+    assert!(matches!(e.app.unlock(MASTER), Err(CoreError::Crypto)));
+    e.app.unlock("a brand new passphrase").unwrap();
+    // The header on disk carries the new password too.
+    let reopened = VantaApp::open(config(&e.dir), Deps::production()).unwrap();
+    assert!(matches!(reopened.unlock(MASTER), Err(CoreError::Crypto)));
+    reopened.unlock("a brand new passphrase").unwrap();
 }

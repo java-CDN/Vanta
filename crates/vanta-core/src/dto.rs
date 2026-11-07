@@ -2,6 +2,7 @@
 //! password, a key or a recovery secret except [`VaultCreated`] (shown once).
 
 use serde::{Deserialize, Serialize};
+use vanta_fingerprint::SurfaceMode;
 use vanta_log::{LogEntry, LogKind};
 use vanta_proxy::ProxyState;
 use vanta_store::{HealthSummary, ProfileMeta};
@@ -82,6 +83,10 @@ pub struct NewProfile {
     pub color: String,
     #[serde(default)]
     pub proxy_id: Option<String>,
+    /// Seed (64-bit, hex) from [`crate::VantaApp::preview_fingerprint`], so the saved
+    /// persona is the one the user saw. `None`: a fresh random seed.
+    #[serde(default)]
+    pub seed: Option<String>,
 }
 
 /// Fields to change; `None` keeps the current value.
@@ -180,4 +185,59 @@ pub struct LogQuery {
 pub struct LogPage {
     pub entries: Vec<LogEntry>,
     pub total: usize,
+}
+
+/// One consistency rule result (C001–C030). `level`: `pass`, `note` or `fail`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RuleView {
+    pub id: String,
+    pub level: String,
+    pub message: String,
+}
+
+/// Everything Fingerprint Studio shows about a persona (read-only: the identity changes
+/// only by regenerating it). The Chrome version is the installed engine's (R5).
+/// Seeds are not included; `seed_prefix` is the first 4 hex digits, for recognition only.
+#[derive(Debug, Clone, Serialize)]
+pub struct FingerprintView {
+    pub device_id: String,
+    pub os: OsKind,
+    pub engine: String,
+    pub user_agent: String,
+    pub sec_ch_ua: String,
+    pub navigator_platform: String,
+    pub ua_platform: String,
+    pub platform_version: String,
+    pub architecture: String,
+    pub bitness: String,
+    pub screen_width: u32,
+    pub screen_height: u32,
+    pub avail_width: u32,
+    pub avail_height: u32,
+    pub color_depth: u32,
+    pub device_pixel_ratio: f64,
+    pub hardware_concurrency: u32,
+    pub device_memory: f64,
+    pub max_touch_points: u32,
+    pub gpu_vendor: String,
+    pub gpu_renderer: String,
+    pub webgpu_vendor: String,
+    pub webgpu_arch: String,
+    pub fonts: Vec<String>,
+    pub microphones: u32,
+    pub cameras: u32,
+    pub speakers: u32,
+    pub locale: String,
+    pub languages: Vec<String>,
+    pub accept_language: String,
+    pub timezone: Option<String>,
+    pub country: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub canvas: SurfaceMode,
+    pub webgl_image: SurfaceMode,
+    pub audio: SurfaceMode,
+    pub webrtc_policy: String,
+    pub seed_prefix: String,
+    pub rules: Vec<RuleView>,
 }
