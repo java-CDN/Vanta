@@ -1,0 +1,32 @@
+# Vanta GN flags (Master Plan v3, section 5). Appended after
+# ungoogled-chromium/flags.gn and ungoogled-chromium-windows/flags.windows.gn;
+# a flag set here overrides theirs. Only flags declared in Chromium 156.
+# One `name=value` per line; lines starting with # are comments.
+
+# Release build, same as ungoogled-chromium-windows.
+is_official_build=true
+is_debug=false
+is_component_build=false
+dcheck_always_on=false
+
+# No debug symbols (smaller artifacts on the free runners).
+symbol_level=0
+blink_symbol_level=0
+v8_symbol_level=0
+
+# D5: proprietary codecs (H.264/AAC) off by default; no Widevine.
+# flags.windows.gn turns codecs on, so all three are overridden here.
+proprietary_codecs=false
+ffmpeg_branding="Chromium"
+enable_mse_mpeg2ts_stream_parser=false
+enable_widevine=false
+
+# Version stays exactly engine/VERSION (R5 version lock).
+use_unofficial_version_number=false
+
+# No Google services or reporting (already set by ungoogled; pinned here).
+enable_reporting=false
+enable_hangout_services_extension=false
+enable_remoting=false
+safe_browsing_mode=0
+use_official_google_api_keys=false

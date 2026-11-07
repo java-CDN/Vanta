@@ -1,0 +1,79 @@
+name: engine-s2
+
+# S2 (Master Plan v3, 5.4): prepare the tree on Windows like
+# ungoogled-chromium-windows build.py --tarball (downloads, prune, patches,
+# domain substitution, rust toolchain, args.gn) with engine/flags.vanta.gn
+# appended, then gn bootstrap + `gn gen --check`. No ninja compile.
+# Runs only after S1 succeeded on main (or by hand).
+
+on:
+  workflow_run:
+    workflows: [engine-s1]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-s2
+  cancel-in-progress: true
+
+jobs:
+  s2:
+    name: S2 gn gen --check (windows)
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 300
+    env:
+      WORK: C:\vanta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Runner info
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property displayName
+          Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Include" | Select-Object Name
+
+      # Same as ungoogled-chromium-windows .github/actions/prepare at the pinned tag.
+      - name: Install Windows SDK 10.0.28000.0
+        shell: pwsh
+        run: |
+          if (Test-Path 'C:\Program Files (x86)\Windows Kits\10\Include\10.0.28000.0') {
+            Write-Host 'SDK 10.0.28000.0 already installed.'
+            exit 0
+          }
+          $installer = "$env:TEMP\winsdksetup.exe"
+          Invoke-WebRequest -Uri 'https://download.microsoft.com/download/38ab8f6d-3676-4860-ae84-3361308b9d7f/KIT_BUNDLE_WINDOWSSDK_MEDIACREATION/winsdksetup.exe' -OutFile $installer
+          $features = '/features OptionId.DesktopCPPx64 OptionId.DesktopCPPx86 OptionId.DesktopCPPArm64 OptionId.WindowsDesktopDebuggers OptionId.UWPCPP OptionId.SigningTools /q /norestart /ceip off'
+          $proc = Start-Process -FilePath $installer -ArgumentList $features -PassThru -Wait
+          if ($proc.ExitCode -ne 0) { throw "winsdksetup.exe failed with code $($proc.ExitCode)" }
+          if (-not (Test-Path 'C:\Program Files (x86)\Windows Kits\10\Include\10.0.28000.0')) {
+            throw 'SDK 10.0.28000.0 not found after install.'
+          }
+
+      - name: Python deps (as ungoogled-chromium-windows stage action)
+        run: python -m pip install httplib2==0.22.0 clang==21.1.7
+
+      - name: Fetch + verify upstream pins
+        run: python engine/scripts/fetch_upstream.py "$env:WORK\ucw"
+
+      - name: Prepare tree (source, windeps, prune, patch, domsub, rust, args)
+        run: python engine/scripts/prepare.py --ucw "$env:WORK\ucw" --build "$env:WORK\build" --steps source,windeps,prune,patch,domsub,rust,args --delete-archives --no-progress
+
+      - name: gn bootstrap + gn gen --check
+        run: python engine/scripts/prepare.py --ucw "$env:WORK\ucw" --build "$env:WORK\build" --steps gngen
+
+      - name: Disk after
+        if: always()
+        shell: pwsh
+        run: Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free

@@ -1,0 +1,129 @@
+# Vanta G1a: product name "Vanta", Windows browser binary vanta-chromium.exe,
+# default user data dir %LOCALAPPDATA%\Vanta\User Data (install_static).
+# Web-exposed brands (UA, UA-CH) are untouched here; that is G2.
+
+--- a/chrome/app/theme/chromium/BRANDING
++++ b/chrome/app/theme/chromium/BRANDING
+@@ -1,10 +1,10 @@
+-COMPANY_FULLNAME=The Chromium Authors
+-COMPANY_SHORTNAME=The Chromium Authors
+-PRODUCT_FULLNAME=Chromium
+-PRODUCT_SHORTNAME=Chromium
+-PRODUCT_INSTALLER_FULLNAME=Chromium Installer
+-PRODUCT_INSTALLER_SHORTNAME=Chromium Installer
+-COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Chromium Authors. All rights reserved.
++COMPANY_FULLNAME=Vanta
++COMPANY_SHORTNAME=Vanta
++PRODUCT_FULLNAME=Vanta
++PRODUCT_SHORTNAME=Vanta
++PRODUCT_INSTALLER_FULLNAME=Vanta Installer
++PRODUCT_INSTALLER_SHORTNAME=Vanta Installer
++COPYRIGHT=Copyright @LASTCHANGE_YEAR@ The Chromium Authors and Vanta. All rights reserved.
+ MAC_BUNDLE_ID=org.chromium.Chromium
+ MAC_CREATOR_CODE=Cr24
+ MAC_TEAM_ID=
+--- a/chrome/app/chromium_strings.grd
++++ b/chrome/app/chromium_strings.grd
+@@ -294,10 +294,10 @@
+         </then>
+         <else>
+           <message name="IDS_PRODUCT_NAME" desc="The Chrome application name" translateable="false">
+-            Chromium
++            Vanta
+           </message>
+           <message name="IDS_SHORT_PRODUCT_NAME" desc="The Chrome application short name." translateable="false">
+-            Chromium
++            Vanta
+           </message>
+         </else>
+       </if>
+--- a/chrome/install_static/chromium_install_modes.h
++++ b/chrome/install_static/chromium_install_modes.h
+@@ -21,7 +21,7 @@
+ 
+ // The brand-specific product name to be included as a component of the install
+ // and user data directory paths.
+-inline constexpr wchar_t kProductPathName[] = L"Chromium";
++inline constexpr wchar_t kProductPathName[] = L"Vanta";
+ 
+ // The brand-specific safe browsing client name.
+ inline constexpr char kSafeBrowsingName[] = "chromium";
+@@ -54,8 +54,8 @@
+         .logo_suffix = L"",  // No logo suffix for the primary install mode.
+         .app_guid =
+             L"",  // Empty app_guid since no integration with Google Update.
+-        .base_app_name = L"Chromium",              // A distinct base_app_name.
+-        .base_app_id = L"Chromium",                // A distinct base_app_id.
++        .base_app_name = L"Vanta",                 // A distinct base_app_name.
++        .base_app_id = L"Vanta",                   // A distinct base_app_id.
+         .browser_prog_id_prefix = L"ChromiumHTM",  // Browser ProgID prefix.
+         .browser_prog_id_description =
+             L"Chromium HTML Document",  // Browser ProgID description.
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -115,7 +115,12 @@
+     data_deps = [ ":chrome_initial" ]
+   }
+ 
+-  _chrome_output_name = "chrome"
++  # Vanta: the browser executable is vanta-chromium.exe on Windows.
++  if (is_win) {
++    _chrome_output_name = "vanta-chromium"
++  } else {
++    _chrome_output_name = "chrome"
++  }
+ 
+   executable("chrome_initial") {
+     configs -= [ "//build/config/compiler:thinlto_optimize_default" ]
+--- a/chrome/common/chrome_constants.cc
++++ b/chrome/common/chrome_constants.cc
+@@ -32,9 +32,9 @@
+ 
+ #if BUILDFLAG(IS_WIN)
+ const base::FilePath::CharType kBrowserProcessExecutableName[] =
+-    FPL("chrome.exe");
++    FPL("vanta-chromium.exe");
+ const base::FilePath::CharType kHelperProcessExecutableName[] =
+-    FPL("chrome.exe");
++    FPL("vanta-chromium.exe");
+ #elif BUILDFLAG(IS_MAC)
+ const base::FilePath::CharType kBrowserProcessExecutableName[] =
+     FPL(PRODUCT_FULLNAME_STRING);
+@@ -54,9 +54,9 @@
+ 
+ #if BUILDFLAG(IS_WIN)
+ const base::FilePath::CharType kBrowserProcessExecutablePath[] =
+-    FPL("chrome.exe");
++    FPL("vanta-chromium.exe");
+ const base::FilePath::CharType kHelperProcessExecutablePath[] =
+-    FPL("chrome.exe");
++    FPL("vanta-chromium.exe");
+ #elif BUILDFLAG(IS_MAC)
+ const base::FilePath::CharType kBrowserProcessExecutablePath[] =
+     FPL(PRODUCT_FULLNAME_STRING ".app/Contents/MacOS/" PRODUCT_FULLNAME_STRING);
+--- a/chrome/app/chrome_exe.ver
++++ b/chrome/app/chrome_exe.ver
+@@ -1,2 +1,2 @@
+ INTERNAL_NAME=chrome_exe
+-ORIGINAL_FILENAME=chrome.exe
++ORIGINAL_FILENAME=vanta-chromium.exe
+--- a/chrome/tools/build/win/FILES.cfg
++++ b/chrome/tools/build/win/FILES.cfg
+@@ -48,7 +48,7 @@
+     'optional': ['official'],
+   },
+   {
+-    'filename': 'chrome.exe',
++    'filename': 'vanta-chromium.exe',
+     'buildtype': ['official'],
+     'filegroup': ['default', 'symsrc'],
+   },
+@@ -639,7 +639,7 @@
+     'archive': 'chrome-win32-syms.zip',
+   },
+   {
+-    'filename': 'chrome.exe.pdb',
++    'filename': 'vanta-chromium.exe.pdb',
+     'buildtype': ['official'],
+     'archive': 'chrome-win32-syms.zip',
+   },

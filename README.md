@@ -46,6 +46,8 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `crates/vanta-vault` | Vault Lock (F06) and the activity-log key (F08). |
 | `crates/vanta-store` | SQLite + FTS5 profile database and search language (F01). |
 | `crates/vanta-fingerprint` | Real Windows device records, UA / UA-CH from the engine version, rules C001–C030, Ed25519-signed launch config (F02, F07). |
+| `engine/` | The engine (`vanta-chromium.exe`): pinned upstream, Vanta Chromium patches, GN flags, build scripts. See `engine/README.md`. |
+| `.github/workflows/engine-s1.yml`, `engine-s2.yml` | Engine CI stages S1 (patches apply, ubuntu) and S2 (`gn gen --check`, windows). |
 | `scripts/check.sh` | All local quality gates. |
 | `scripts/no-telemetry.sh` | Fails on references to analytics/telemetry endpoints or SDKs. |
 | `docs/` | Master Plan v3 (PDF) and the clickable prototype. |

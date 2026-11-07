@@ -1,0 +1,238 @@
+# Vanta G1b: --vanta-config=<path> --vanta-pubkey=<base64 Ed25519 key>.
+# Ed25519 (BoringSSL) over the payload bytes exactly as vanta-fingerprint
+# config.rs signs them; bad/missing signature -> exit 86; persona engine
+# version != this engine's version_info -> exit 87. Browser process only,
+# checked in ChromeMainDelegate::BasicStartupComplete.
+
+--- /dev/null
++++ b/chrome/browser/vanta/BUILD.gn
+@@ -0,0 +1,16 @@
++# Copyright 2026 The Vanta Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# Vanta signed launch config (patch group G1).
++source_set("vanta") {
++  sources = [
++    "launch_config.cc",
++    "launch_config.h",
++  ]
++  deps = [
++    "//base",
++    "//base/version_info",
++    "//third_party/boringssl",
++  ]
++}
+--- /dev/null
++++ b/chrome/browser/vanta/DEPS
+@@ -0,0 +1,4 @@
++include_rules = [
++  "+base",
++  "+third_party/boringssl/src/include",
++]
+--- /dev/null
++++ b/chrome/browser/vanta/launch_config.h
+@@ -0,0 +1,41 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef CHROME_BROWSER_VANTA_LAUNCH_CONFIG_H_
++#define CHROME_BROWSER_VANTA_LAUNCH_CONFIG_H_
++
++#include <optional>
++
++#include "base/values.h"
++
++namespace base {
++class CommandLine;
++}
++
++namespace vanta {
++
++// --vanta-config=<path>: file holding the signed launch config, the JSON form
++// of vanta-fingerprint's SignedConfig: {"payload": "<persona JSON>",
++// "signature": "<base64 Ed25519 signature over the payload bytes>"}.
++inline constexpr char kVantaConfigSwitch[] = "vanta-config";
++// --vanta-pubkey=<base64>: the 32-byte Ed25519 public key of the launcher.
++inline constexpr char kVantaPubkeySwitch[] = "vanta-pubkey";
++
++// Exit codes shared with the launcher (vanta-types exit_codes).
++inline constexpr int kExitBadConfigSignature = 86;
++inline constexpr int kExitVersionMismatch = 87;
++
++// Runs in the browser process before anything touches the profile. Without
++// --vanta-config it does nothing and returns std::nullopt. With it, the config
++// must carry a valid Ed25519 signature for --vanta-pubkey (else 86) and its
++// payload's engine version must equal this engine's own version (else 87).
++// Returns the exit code to stop with, or std::nullopt to continue.
++std::optional<int> VerifyLaunchConfig(const base::CommandLine& command_line);
++
++// The verified persona payload, or nullptr when no config was given.
++const base::DictValue* GetVerifiedPersona();
++
++}  // namespace vanta
++
++#endif  // CHROME_BROWSER_VANTA_LAUNCH_CONFIG_H_
+--- /dev/null
++++ b/chrome/browser/vanta/launch_config.cc
+@@ -0,0 +1,122 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "chrome/browser/vanta/launch_config.h"
++
++#include <stdint.h>
++
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "base/base64.h"
++#include "base/command_line.h"
++#include "base/files/file_path.h"
++#include "base/files/file_util.h"
++#include "base/json/json_reader.h"
++#include "base/logging.h"
++#include "base/no_destructor.h"
++#include "base/version.h"
++#include "base/version_info/version_info.h"
++#include "third_party/boringssl/src/include/openssl/curve25519.h"
++
++namespace vanta {
++
++namespace {
++
++// A persona is a few KB; anything this large is not ours.
++constexpr size_t kMaxConfigBytes = 1024 * 1024;
++
++std::optional<base::DictValue>& PersonaSlot() {
++  static base::NoDestructor<std::optional<base::DictValue>> slot;
++  return *slot;
++}
++
++int Fail(int code, std::string_view why) {
++  LOG(ERROR) << "vanta: launch config rejected: " << why << " (exit " << code
++             << ")";
++  return code;
++}
++
++}  // namespace
++
++std::optional<int> VerifyLaunchConfig(const base::CommandLine& command_line) {
++  if (!command_line.HasSwitch(kVantaConfigSwitch)) {
++    return std::nullopt;
++  }
++
++  // 1. Read {"payload": ..., "signature": ...}.
++  const base::FilePath path =
++      command_line.GetSwitchValuePath(kVantaConfigSwitch);
++  std::string file;
++  if (path.empty() ||
++      !base::ReadFileToStringWithMaxSize(path, &file, kMaxConfigBytes)) {
++    return Fail(kExitBadConfigSignature, "config file unreadable");
++  }
++  std::optional<base::DictValue> outer =
++      base::JSONReader::ReadDict(file, base::JSON_PARSE_RFC);
++  if (!outer) {
++    return Fail(kExitBadConfigSignature, "config is not a JSON object");
++  }
++  const std::string* payload = outer->FindString("payload");
++  const std::string* signature_b64 = outer->FindString("signature");
++  if (!payload || !signature_b64) {
++    return Fail(kExitBadConfigSignature, "payload or signature missing");
++  }
++
++  // 2. Ed25519 over the exact payload bytes, as vanta-fingerprint signs them.
++  std::optional<std::vector<uint8_t>> signature =
++      base::Base64Decode(*signature_b64);
++  if (!signature || signature->size() != ED25519_SIGNATURE_LEN) {
++    return Fail(kExitBadConfigSignature, "signature is not 64 bytes base64");
++  }
++  std::optional<std::vector<uint8_t>> pubkey = base::Base64Decode(
++      command_line.GetSwitchValueASCII(kVantaPubkeySwitch));
++  if (!pubkey || pubkey->size() != ED25519_PUBLIC_KEY_LEN) {
++    return Fail(kExitBadConfigSignature,
++                "--vanta-pubkey missing or not 32 bytes base64");
++  }
++  if (ED25519_verify(reinterpret_cast<const uint8_t*>(payload->data()),
++                     payload->size(), signature->data(),
++                     pubkey->data()) != 1) {
++    return Fail(kExitBadConfigSignature, "bad signature");
++  }
++
++  // 3. Version lock (R5): the persona is bound to this engine's version.
++  std::optional<base::DictValue> persona =
++      base::JSONReader::ReadDict(*payload, base::JSON_PARSE_RFC);
++  if (!persona) {
++    return Fail(kExitBadConfigSignature, "payload is not a JSON object");
++  }
++  const base::DictValue* engine = persona->FindDict("engine");
++  if (!engine) {
++    return Fail(kExitBadConfigSignature, "payload has no engine version");
++  }
++  static constexpr const char* kParts[] = {"major", "minor", "build", "patch"};
++  std::vector<uint32_t> wanted;
++  for (const char* part : kParts) {
++    std::optional<int> v = engine->FindInt(part);
++    if (!v || *v < 0) {
++      return Fail(kExitBadConfigSignature, "engine version malformed");
++    }
++    wanted.push_back(static_cast<uint32_t>(*v));
++  }
++  const base::Version& own = version_info::GetVersion();
++  if (!own.IsValid() || own.components() != wanted) {
++    return Fail(kExitVersionMismatch,
++                "persona engine version differs from " + own.GetString());
++  }
++
++  PersonaSlot() = std::move(persona);
++  return std::nullopt;
++}
++
++const base::DictValue* GetVerifiedPersona() {
++  const std::optional<base::DictValue>& slot = PersonaSlot();
++  return slot ? &slot.value() : nullptr;
++}
++
++}  // namespace vanta
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -2359,6 +2359,7 @@
+     "//chrome/browser/usb:impl",
+     "//chrome/browser/v8_compile_hints",
+     "//chrome/browser/v8_compile_hints:impl",
++    "//chrome/browser/vanta",
+     "//chrome/browser/webapps",
+     "//chrome/browser/webapps:impl",
+     "//chrome/browser/webapps/installable",
+--- a/chrome/app/chrome_main_delegate.cc
++++ b/chrome/app/chrome_main_delegate.cc
+@@ -195,6 +195,7 @@
+ #include "chrome/browser/lifetime/browser_shutdown.h"  // nogncheck
+ #include "chrome/browser/metrics/chrome_feature_list_creator.h"  // nogncheck
+ #include "chrome/browser/startup_data.h"  // nogncheck
++#include "chrome/browser/vanta/launch_config.h"  // nogncheck
+ #include "chrome/gpu/chrome_content_gpu_client.h"  // nogncheck
+ #include "chrome/utility/chrome_content_utility_client.h"  // nogncheck
+ #include "components/devtools/devtools_pipe/devtools_pipe.h"  // nogncheck
+@@ -1226,6 +1227,16 @@
+     LOG(ERROR) << "Remote debugging pipe file descriptors are not open.";
+     return CHROME_RESULT_CODE_UNSUPPORTED_PARAM;
+   }
++
++  // Vanta: verify the signed launch config before the profile, process
++  // singleton or any relaunch is touched. Exit 86 = bad signature,
++  // 87 = persona engine version differs from this engine.
++  if (is_browser) {
++    if (std::optional<int> vanta_exit =
++            vanta::VerifyLaunchConfig(command_line)) {
++      return *vanta_exit;
++    }
++  }
+ #elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+   const bool is_browser = false;
+ #endif  // !defined(BUILDING_CHROME_RENDERER)

@@ -1,0 +1,73 @@
+name: engine-s1
+
+# S1 (Master Plan v3, 5.4): every patch layer applies in order on the real
+# Chromium source tarball, no compile. ungoogled-chromium -> ungoogled-chromium-
+# windows -> engine/patches/series, then pruning + domain substitution exactly
+# as ungoogled-chromium-windows build.py --tarball does. Fails fast on a reject.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'engine/**'
+      - '.github/workflows/engine-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-s1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  s1:
+    name: S1 patches apply (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WORK: /mnt/vanta
+    steps:
+      - name: Free disk space
+        run: |
+          df -h / /mnt
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          # Build on whichever disk has more room.
+          root_free=$(df --output=avail -k / | tail -1); mnt_free=$(df --output=avail -k /mnt | tail -1)
+          if [ "$root_free" -gt "$mnt_free" ]; then echo "WORK=$HOME/vanta" >> "$GITHUB_ENV"; fi
+          sudo mkdir -p /mnt/vanta && sudo chown "$USER" /mnt/vanta
+          df -h / /mnt
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Offline patch check (fast fail)
+        run: |
+          python3 engine/scripts/fetch_upstream.py "$WORK/ucw"
+          python3 engine/scripts/offline_check.py --ucw "$WORK/ucw"
+
+      - name: Download + verify Chromium tarball, unpack, prune, patch, domain substitution
+        run: |
+          mkdir -p "$WORK"
+          python3 engine/scripts/prepare.py --ucw "$WORK/ucw" --build "$WORK/build" \
+            --steps source,prune,patch,domsub --delete-archives --no-progress
+          df -h "$WORK"
+
+      - name: Check patched tree
+        run: |
+          src="$WORK/build/src"
+          test "$(cat engine/VERSION)" = "$(sed -n 's/^\(MAJOR\|MINOR\|BUILD\|PATCH\)=//p' "$src/chrome/VERSION" | paste -sd.)"
+          grep -q '"vanta-chromium"' "$src/chrome/BUILD.gn"
+          grep -q 'vanta::VerifyLaunchConfig' "$src/chrome/app/chrome_main_delegate.cc"
+          grep -q '"//chrome/browser/vanta"' "$src/chrome/browser/BUILD.gn"
+          grep -q 'PRODUCT_FULLNAME=Vanta' "$src/chrome/app/theme/chromium/BRANDING"
+          ls -l "$src/chrome/browser/vanta"
+          if find "$src" -name '*.rej' | grep -q .; then
+            echo "reject files found"; find "$src" -name '*.rej' | head; exit 1
+          fi
+          python3 engine/scripts/prepare.py --ucw "$WORK/ucw" --build "$WORK/build" --print-args
