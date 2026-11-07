@@ -1034,7 +1034,13 @@ mod tests {
         let (code, _) = socks_connect(relay.local_addr(), &target).await;
         assert_ne!(code, 0);
         assert!(relay.is_tripped());
-        assert!(t0.elapsed() < Duration::from_secs(2));
+        // Tripped by the failed tunnel, well before the first 5 s heartbeat. (Windows takes
+        // about 2 s to report a refused loopback connect, so allow for that.)
+        assert!(
+            t0.elapsed() < DEFAULT_HEARTBEAT - Duration::from_millis(500),
+            "{:?}",
+            t0.elapsed()
+        );
         relay.shutdown().await;
     }
 
