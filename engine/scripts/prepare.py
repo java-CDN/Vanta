@@ -66,6 +66,7 @@ class Ctx:
         self.delete_archives = a.delete_archives
         self.progress = not a.no_progress
         self.check = a.gn_check
+        self.windeps_only = [c for c in (a.windeps_only or '').split(',') if c]
         sys.path.insert(0, str(self.uc / 'utils'))
         import downloads, domain_substitution, prune_binaries, patches, _common  # noqa: E402
         self.downloads = downloads
@@ -77,25 +78,33 @@ class Ctx:
         self.extractors = {
             _common.ExtractorEnum.SEVENZIP: _common.USE_REGISTRY,
             _common.ExtractorEnum.WINRAR: _common.USE_REGISTRY,
+            _common.ExtractorEnum.TAR: 'tar',
         }
 
     # ---------------------------------------------------------------- helpers
-    def _fetch(self, ini: Path, unpack_to: Path):
+    def _fetch(self, ini: Path, unpack_to: Path, components=None):
         info = self.downloads.DownloadInfo([ini])
         self.cache.mkdir(parents=True, exist_ok=True)
-        self.downloads.retrieve_downloads(info, self.cache, None, self.progress, False)
+        self.downloads.retrieve_downloads(info, self.cache, components, self.progress, False)
         try:
-            self.downloads.check_downloads(info, self.cache, None)
+            self.downloads.check_downloads(info, self.cache, components)
         except self.downloads.HashMismatchError as exc:
             raise SystemExit(f'checksum mismatch: {exc}')
         log(f'hashes ok for {ini}')
-        for _, props in info.properties_iter():
+        for name, props in info.properties_iter():
+            if components and name not in components:
+                continue
             if props.has_hash_url():
                 hashes = self.cache / props.hashes['hash_url'][1]
                 log(f'{hashes.name}:\n' + hashes.read_text(encoding='utf-8'))
-        self.downloads.unpack_downloads(info, self.cache, None, unpack_to, self.extractors)
+        for name, props in info.properties_iter():  # tar's extractor needs the parent dir
+            if not components or name in components:
+                (unpack_to / props.output_path).parent.mkdir(parents=True, exist_ok=True)
+        self.downloads.unpack_downloads(info, self.cache, components, unpack_to, self.extractors)
         if self.delete_archives:
-            for _, props in info.properties_iter():
+            for name, props in info.properties_iter():
+                if components and name not in components:
+                    continue
                 p = self.cache / props.download_filename
                 if p.exists():
                     p.unlink()
@@ -151,13 +160,17 @@ class Ctx:
 
     def step_windeps(self):
         # build.py empties these two before unpacking the Windows downloads.
-        for rel in ('third_party/microsoft_dxheaders/src',
-                    'third_party/devtools-frontend/src/third_party/esbuild'):
+        for comp, rel in (('directx-headers', 'third_party/microsoft_dxheaders/src'),
+                          ('esbuild', 'third_party/devtools-frontend/src/third_party/esbuild')):
+            if self.windeps_only and comp not in self.windeps_only:
+                continue
             d = self.src / rel
             if d.exists():
                 shutil.rmtree(d)
                 d.mkdir()
-        self._fetch(self.ucw / 'downloads.ini', self.src)
+        if self.windeps_only:
+            log(f'windeps limited to: {self.windeps_only}')
+        self._fetch(self.ucw / 'downloads.ini', self.src, self.windeps_only or None)
 
     def step_prune(self):
         lst = (self.uc / 'pruning.list').read_text(encoding='utf-8').splitlines()
@@ -260,6 +273,9 @@ def main():
     ap.add_argument('--delete-archives', action='store_true',
                     help='delete each downloaded archive after unpacking (CI disk)')
     ap.add_argument('--no-progress', action='store_true')
+    ap.add_argument('--windeps-only', metavar='A,B',
+                    help='only these ungoogled-chromium-windows downloads.ini sections '
+                         '(S1 on Linux needs just "typescript", which a windows patch edits)')
     ap.add_argument('--no-gn-check', dest='gn_check', action='store_false')
     ap.add_argument('--print-args', action='store_true', help='print merged args.gn and exit')
     a = ap.parse_args()

@@ -4,6 +4,8 @@ name: engine-s1
 # Chromium source tarball, no compile. ungoogled-chromium -> ungoogled-chromium-
 # windows -> engine/patches/series, then pruning + domain substitution exactly
 # as ungoogled-chromium-windows build.py --tarball does. Fails fast on a reject.
+# Of the Windows downloads only "typescript" is unpacked here: it is the one
+# download a Windows patch edits (windows-fix-typescript-lib-dom.patch).
 
 on:
   push:
@@ -55,7 +57,8 @@ jobs:
         run: |
           mkdir -p "$WORK"
           python3 engine/scripts/prepare.py --ucw "$WORK/ucw" --build "$WORK/build" \
-            --steps source,prune,patch,domsub --delete-archives --no-progress
+            --steps source,windeps,prune,patch,domsub --windeps-only typescript \
+            --delete-archives --no-progress
           df -h "$WORK"
 
       - name: Check patched tree
