@@ -1,6 +1,9 @@
 # Vanta G1a: product name "Vanta", Windows browser binary vanta-chromium.exe,
 # default user data dir %LOCALAPPDATA%\Vanta\User Data (install_static).
 # Web-exposed brands (UA, UA-CH) are untouched here; that is G2.
+# mini_installer's archive inputs and chrome.release name the new exe so the
+# GN graph stays consistent (`gn gen` rejects an input no target generates);
+# the Chromium installer itself is not supported (Vanta ships its own).
 
 --- a/chrome/app/theme/chromium/BRANDING
 +++ b/chrome/app/theme/chromium/BRANDING
@@ -127,3 +130,25 @@
      'buildtype': ['official'],
      'archive': 'chrome-win32-syms.zip',
    },
+--- a/chrome/installer/mini_installer/BUILD.gn
++++ b/chrome/installer/mini_installer/BUILD.gn
+@@ -151,7 +151,7 @@
+   inputs = [
+     "$root_out_dir/chrome.dll",
+     "$root_out_dir/chrome_elf.dll",
+-    "$root_out_dir/chrome.exe",
++    "$root_out_dir/vanta-chromium.exe",
+     "$root_out_dir/locales/en-US.pak",
+     "$root_out_dir/setup.exe",
+     "//chrome/tools/build/win/makecab.py",
+--- a/chrome/installer/mini_installer/chrome.release
++++ b/chrome/installer/mini_installer/chrome.release
+@@ -6,7 +6,7 @@
+ #
+ # Chrome Application dir entries, sorted alphabetically.
+ #
+-chrome.exe: %(ChromeDir)s\
++vanta-chromium.exe: %(ChromeDir)s\
+ chrome_proxy.exe: %(ChromeDir)s\
+ #
+ # Chrome version dir assembly manifest.
