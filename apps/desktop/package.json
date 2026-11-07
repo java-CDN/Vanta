@@ -1,0 +1,32 @@
+{
+  "name": "vanta-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config ui/vite.config.ts",
+    "dev:mock": "vite --config ui/vite.config.ts --mode mock",
+    "build": "tsc -p ui && vite build --config ui/vite.config.ts",
+    "build:mock": "vite build --config ui/vite.config.ts --mode mock",
+    "test": "tsc -p ui && vitest run --config ui/vite.config.ts",
+    "smoke": "node ui/tests/smoke.mjs",
+    "tauri": "tauri",
+    "size": "node ui/tests/size.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright-core": "^1.65.0",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  }
+}

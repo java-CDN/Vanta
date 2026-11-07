@@ -1,0 +1,10 @@
+/* Desktop shell adjustments on top of the prototype's style.css. */
+/* The real window has native Windows decorations, so the prototype's mock title bar is not drawn. */
+#root { width: 100%; height: 100%; }
+.win { height: 100vh; }
+.body { flex: 1; min-height: 0; display: flex; }
+.lock-wrap { flex: 1; }
+.inp.ro { color: var(--text2); cursor: default; }
+tr.vpad td { padding: 0 !important; }
+button[disabled] { cursor: not-allowed; }
+.drawer { top: 0; }
