@@ -27,6 +27,17 @@ from pathlib import Path
 ENGINE = Path(__file__).resolve().parent.parent
 ALL_STEPS = ('source', 'windeps', 'prune', 'patch', 'domsub', 'rust', 'args', 'gngen')
 
+# `gn check` scope. The whole graph cannot pass: the -lite tarball has no test
+# sources (v8/test/unittests, ...) and some upstream test targets have include
+# errors after ungoogled's patches. So the check covers the shipping browser
+# targets and everything Vanta adds.
+GN_CHECK_TARGETS = (
+    '//chrome/browser/vanta/*',
+    '//chrome:chrome_initial',
+    '//chrome:chrome_dll',
+    '//chrome/browser:browser',
+)
+
 
 def log(msg):
     print(f'[vanta-prepare] {msg}', flush=True)
@@ -255,11 +266,11 @@ class Ctx:
         if not gn.exists():
             self._run_vc(sys.executable, 'tools\\gn\\bootstrap\\bootstrap.py', '-o',
                          'out\\Default\\gn.exe', '--skip-generate-buildfiles')
-        args = ['out\\Default\\gn.exe', 'gen', 'out\\Default', '--fail-on-unused-args']
+        self._run_vc('out\\Default\\gn.exe', 'gen', 'out\\Default', '--fail-on-unused-args')
+        log('gn gen ok')
         if self.check:
-            args.append('--check')
-        self._run_vc(*args)
-        log('gn gen ok' + (' (with --check)' if self.check else ''))
+            self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default', *GN_CHECK_TARGETS)
+            log('gn check ok: ' + ' '.join(GN_CHECK_TARGETS))
 
 
 def main():

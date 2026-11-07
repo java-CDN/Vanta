@@ -3,7 +3,9 @@ name: engine-s2
 # S2 (Master Plan v3, 5.4): prepare the tree on Windows like
 # ungoogled-chromium-windows build.py --tarball (downloads, prune, patches,
 # domain substitution, rust toolchain, args.gn) with engine/flags.vanta.gn
-# appended, then gn bootstrap + `gn gen --check`. No ninja compile.
+# appended, then gn bootstrap, `gn gen --fail-on-unused-args` over the whole
+# graph and `gn check` on the browser targets plus //chrome/browser/vanta
+# (see GN_CHECK_TARGETS in engine/scripts/prepare.py). No ninja compile.
 # Runs only after S1 succeeded on main (or by hand).
 
 on:
@@ -22,12 +24,13 @@ concurrency:
 
 jobs:
   s2:
-    name: S2 gn gen --check (windows)
+    name: S2 gn gen + gn check (windows)
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-latest
     timeout-minutes: 300
     env:
-      WORK: C:\vanta
+      # D: has ~230 GB free on the hosted image; C: ran out (2.8 GB left) in run 42376922757.
+      WORK: D:\vanta
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,7 +73,7 @@ jobs:
       - name: Prepare tree (source, windeps, prune, patch, domsub, rust, args)
         run: python engine/scripts/prepare.py --ucw "$env:WORK\ucw" --build "$env:WORK\build" --steps source,windeps,prune,patch,domsub,rust,args --delete-archives --no-progress
 
-      - name: gn bootstrap + gn gen --check
+      - name: gn bootstrap + gn gen + gn check (Vanta and browser targets)
         run: python engine/scripts/prepare.py --ucw "$env:WORK\ucw" --build "$env:WORK\build" --steps gngen
 
       - name: Disk after

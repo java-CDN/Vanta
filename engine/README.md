@@ -32,7 +32,7 @@ domain substitution.
 | `flags.vanta.gn` | GN args added after ungoogled `flags.gn` + `flags.windows.gn`. A flag set here wins. |
 | `patches/series`, `patches/vanta/*.patch` | Vanta patches (unified diffs, `a/` `b/` paths, applied with `patch -p1 --ignore-whitespace --forward`, the same options as ungoogled's `utils/patches.py`). |
 | `scripts/fetch_upstream.py` | Clones ungoogled-chromium-windows + its submodule at the lock and checks the SHAs. |
-| `scripts/prepare.py` | Every step up to and including `gn gen --check`: `source, windeps, prune, patch, domsub, rust, args, gngen`. It never runs ninja. |
+| `scripts/prepare.py` | Every step up to and including `gn gen` + `gn check`: `source, windeps, prune, patch, domsub, rust, args, gngen`. It never runs ninja. |
 | `scripts/offline_check.py` | Quick check for developers: pulls only the files the Vanta patches touch from chromium.googlesource.com, applies the upstream hunks for them, then the Vanta series. |
 | `scripts/build.ps1` | Full local build on your own Windows PC (R8). |
 
@@ -130,7 +130,7 @@ There is no spoofing, no CDP and no telemetry.
 | Stage | Workflow | Runner | What |
 |---|---|---|---|
 | **S1** | `.github/workflows/engine-s1.yml` | ubuntu-latest | Pin check, offline check, then the real tarball: download, verify, unpack (archive deleted), prune, apply all three patch layers, domain substitution. No compile. Runs on pushes touching `engine/**` or `engine-*.yml`. |
-| **S2** | `.github/workflows/engine-s2.yml` | windows-latest | After S1 succeeds on main (`workflow_run`) or by hand: SDK 10.0.28000.0, Windows downloads, the full `prepare.py` flow, `gn` bootstrap, `gn gen --fail-on-unused-args --check`. No ninja. |
+| **S2** | `.github/workflows/engine-s2.yml` | windows-latest | After S1 succeeds on main (`workflow_run`) or by hand: SDK 10.0.28000.0, Windows downloads, the full `prepare.py` flow, `gn` bootstrap, `gn gen --fail-on-unused-args` over the whole graph, then `gn check` on `//chrome/browser/vanta/*`, `//chrome:chrome_initial`, `//chrome:chrome_dll` and `//chrome/browser:browser`. The full-graph check cannot pass, because the -lite tarball has no test sources (`v8/test/unittests`, …) and some upstream test targets have include errors once ungoogled's patches are applied. Builds on `D:` because `C:` runs out of space. No ninja. |
 | S3 | *not yet* | windows | Compile only the targets Vanta touches (`//chrome/browser/vanta`, `chrome_main_delegate`, …). |
 | S4 | *not yet* | windows | Full build in chained jobs that resume from artifacts (the ungoogled-chromium-windows `reusable-build.yml` model, 16 stages). |
 | S5 | *not yet* | windows | Smoke test: exe starts; bad signature gives 86, wrong version gives 87; fingerprint = config; proxy-only traffic; kill switch. |
