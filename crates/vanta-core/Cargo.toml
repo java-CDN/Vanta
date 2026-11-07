@@ -1,0 +1,28 @@
+[package]
+name = "vanta-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# Developer hosts only: a relay that accepts any local client. Never in release builds.
+dev-any-client = ["vanta-proxy/dev-any-client"]
+
+[dependencies]
+vanta-types.workspace = true
+vanta-vault.workspace = true
+vanta-store.workspace = true
+vanta-fingerprint.workspace = true
+vanta-proxy.workspace = true
+vanta-log.workspace = true
+vanta-launcher.workspace = true
+vanta-health.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+ed25519-dalek.workspace = true
+base64.workspace = true
+uuid.workspace = true
+rand.workspace = true
+zeroize.workspace = true

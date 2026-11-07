@@ -61,6 +61,15 @@ pub enum LogKind {
     /// A leak the guard stopped (non-proxied UDP, LAN, IPv6...).
     BlockedEvent,
     HealthRun,
+    /// The Network Guard kill switch tripped (heartbeat or tunnel failure); all relay
+    /// connections were cut.
+    KillSwitch,
+    /// The upstream proxy answered again and the kill switch re-armed.
+    ProxyReconnect,
+    /// A launch the gate refused, or an engine that refused its config (exit 86/87).
+    LaunchBlocked,
+    /// An engine that ended on its own with an error.
+    ProfileCrash,
 }
 
 /// One log entry. `detail` is short free text and must never hold secrets.

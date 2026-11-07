@@ -269,7 +269,7 @@ fn scoring_weights_and_cap() {
 
 #[test]
 fn score_feeds_the_launcher_gate() {
-    use vanta_launcher::{preflight, Block, Preflight, MIN_HEALTH_SCORE};
+    use vanta_launcher::{preflight, Block, HealthGate, Preflight, MIN_HEALTH_SCORE};
     use vanta_proxy::ProxyState;
     assert_eq!(LAUNCH_THRESHOLD, MIN_HEALTH_SCORE);
     let now = 1_800_000_000_000;
@@ -285,7 +285,9 @@ fn score_feeds_the_launcher_gate() {
             proxy_max_age_ms: 300_000,
             relay_armed: true,
             rules_passed: true,
-            health_score: r.preflight_score(),
+            health: HealthGate::Fresh {
+                score: r.preflight_score().unwrap(),
+            },
         };
         let gate = preflight(&p, now);
         assert_eq!(gate.is_err(), r.blocked);

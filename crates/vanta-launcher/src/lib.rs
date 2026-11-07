@@ -8,14 +8,18 @@
 //!   (`--vanta-config`, `--vanta-pubkey`), the relay as the only proxy, the WebRTC policy and
 //!   QUIC off. It never adds `--remote-debugging-*` (no CDP, Master Plan v3).
 //! - [`ProcessTable`] reports status from the real child process (never guessed), which is
-//!   what `vanta-store::Store::set_status` is fed with.
+//!   what `vanta-store::Store::set_status` is fed with. It holds any [`EngineProcess`]
+//!   (a real [`Child`], or a test double).
+//! - [`spawn_in_job`]: on Windows the engine is created `CREATE_SUSPENDED`, assigned to the
+//!   profile's [`KillOnCloseJob`] and only then resumed, so not a single instruction of the
+//!   engine (and no child it spawns) runs outside the job. Other hosts get an error.
 //! - [`KillOnCloseJob`]: on Windows a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
 //!   elsewhere (developer builds only) a no-op. Use one job per profile: it is also the
 //!   profile's engine process tree for the relay's client check ([`JobAuthorizer`],
 //!   [`relay_clients`]), since every child the engine spawns inherits the job.
 //!
-//! Still to do (next phase): wiring relay start/stop per launch, exit-code handling in the
-//! UI, and writing launch/stop entries to `vanta-log`.
+//! The orchestration (relay per launch, signed config, status watcher, activity log) lives
+//! in `vanta-core`.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
@@ -38,9 +42,25 @@ pub struct Preflight {
     pub relay_armed: bool,
     /// Rules C001–C030 have no Fail.
     pub rules_passed: bool,
-    /// Last health score, if a health run happened.
-    pub health_score: Option<u8>,
+    /// The profile's last health run (F03).
+    pub health: HealthGate,
 }
+
+/// What the gate knows about the profile's last health run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthGate {
+    /// A health report younger than the maximum age, for this engine and this proxy.
+    Fresh { score: u8 },
+    /// No health run yet (or it was invalidated by a proxy/fingerprint/engine change).
+    Missing,
+    /// The last report is older than the maximum age.
+    Expired { age_ms: i64 },
+    /// The launch *is* the health run; it cannot require one.
+    NotRequired,
+}
+
+/// A health report older than this must be renewed before launch (7 days).
+pub const HEALTH_MAX_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 /// One reason a launch is blocked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +69,8 @@ pub enum Block {
     GuardNotArmed,
     RulesFailed,
     HealthTooLow { score: u8 },
+    HealthMissing,
+    HealthExpired { age_ms: i64 },
 }
 
 impl std::fmt::Display for Block {
@@ -63,6 +85,14 @@ impl std::fmt::Display for Block {
                     "launch blocked: health score {score} is below {MIN_HEALTH_SCORE}"
                 )
             }
+            Block::HealthMissing => {
+                f.write_str("launch blocked: run a health check for this profile first")
+            }
+            Block::HealthExpired { age_ms } => write!(
+                f,
+                "launch blocked: last health check is {} days old, run it again",
+                age_ms / 86_400_000
+            ),
         }
     }
 }
@@ -79,8 +109,13 @@ pub fn preflight(p: &Preflight, now_ms: i64) -> std::result::Result<(), Vec<Bloc
     if !p.rules_passed {
         blocks.push(Block::RulesFailed);
     }
-    if let Some(score) = p.health_score.filter(|s| *s < MIN_HEALTH_SCORE) {
-        blocks.push(Block::HealthTooLow { score });
+    match p.health {
+        HealthGate::Fresh { score } if score < MIN_HEALTH_SCORE => {
+            blocks.push(Block::HealthTooLow { score })
+        }
+        HealthGate::Fresh { .. } | HealthGate::NotRequired => {}
+        HealthGate::Missing => blocks.push(Block::HealthMissing),
+        HealthGate::Expired { age_ms } => blocks.push(Block::HealthExpired { age_ms }),
     }
     if blocks.is_empty() {
         Ok(())
@@ -96,6 +131,25 @@ pub fn exit_reason(code: i32) -> Option<&'static str> {
         exit_codes::VERSION_MISMATCH => Some("persona version does not match the engine (C030)"),
         exit_codes::ISOLATION_BROKEN => Some("profile isolation broken"),
         _ => None,
+    }
+}
+
+/// Typed meaning of an engine exit code that Vanta defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineExit {
+    BadConfigSignature,
+    VersionMismatch,
+    IsolationBroken,
+}
+
+impl EngineExit {
+    pub fn from_code(code: i32) -> Option<Self> {
+        match code {
+            exit_codes::BAD_CONFIG_SIGNATURE => Some(Self::BadConfigSignature),
+            exit_codes::VERSION_MISMATCH => Some(Self::VersionMismatch),
+            exit_codes::ISOLATION_BROKEN => Some(Self::IsolationBroken),
+            _ => None,
+        }
     }
 }
 
@@ -139,10 +193,37 @@ impl EngineLaunch {
     }
 }
 
+/// A running engine process: a real [`Child`] in production, a double in tests.
+pub trait EngineProcess: Send {
+    fn pid(&self) -> u32;
+    /// `Ok(None)` while running, `Ok(Some(code))` once it ended (`None` code = killed by a
+    /// signal / no code).
+    fn try_exit(&mut self) -> std::io::Result<Option<Option<i32>>>;
+    /// Terminate it (the profile's job also goes when its handle closes).
+    fn kill(&mut self) -> std::io::Result<()>;
+    /// Wait for it to end.
+    fn wait_exit(&mut self) -> std::io::Result<Option<i32>>;
+}
+
+impl EngineProcess for Child {
+    fn pid(&self) -> u32 {
+        self.id()
+    }
+    fn try_exit(&mut self) -> std::io::Result<Option<Option<i32>>> {
+        Ok(self.try_wait()?.map(|st| st.code()))
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        Child::kill(self)
+    }
+    fn wait_exit(&mut self) -> std::io::Result<Option<i32>> {
+        Ok(self.wait()?.code())
+    }
+}
+
 /// Live profile processes. Status is read from the OS, never assumed.
 #[derive(Default)]
 pub struct ProcessTable {
-    procs: HashMap<ProfileId, Child>,
+    procs: HashMap<ProfileId, Box<dyn EngineProcess>>,
     blocked: HashSet<ProfileId>,
 }
 
@@ -152,7 +233,11 @@ impl ProcessTable {
     }
 
     /// Track a started engine process.
-    pub fn insert(&mut self, id: ProfileId, child: Child) {
+    pub fn insert(&mut self, id: ProfileId, child: impl EngineProcess + 'static) {
+        self.insert_boxed(id, Box::new(child));
+    }
+
+    pub fn insert_boxed(&mut self, id: ProfileId, child: Box<dyn EngineProcess>) {
         self.blocked.remove(&id);
         self.procs.insert(id, child);
     }
@@ -166,10 +251,20 @@ impl ProcessTable {
         self.blocked.remove(&id);
     }
 
+    /// Whether a live process is tracked for `id` (without reaping it).
+    pub fn contains(&self, id: ProfileId) -> bool {
+        self.procs.contains_key(&id)
+    }
+
+    /// PID of the profile's engine, if tracked.
+    pub fn pid(&self, id: ProfileId) -> Option<u32> {
+        self.procs.get(&id).map(|p| p.pid())
+    }
+
     /// Current status. An exited process is removed and reported `Stopped`.
     pub fn status(&mut self, id: ProfileId) -> ProfileStatus {
         if let Some(child) = self.procs.get_mut(&id) {
-            match child.try_wait() {
+            match child.try_exit() {
                 Ok(None) => return ProfileStatus::Running,
                 _ => {
                     self.procs.remove(&id);
@@ -186,10 +281,10 @@ impl ProcessTable {
     /// Reap exited processes: `(profile, exit code)` for each one that ended.
     pub fn poll_exits(&mut self) -> Vec<(ProfileId, Option<i32>)> {
         let mut ended = Vec::new();
-        self.procs.retain(|id, child| match child.try_wait() {
+        self.procs.retain(|id, child| match child.try_exit() {
             Ok(None) => true,
-            Ok(Some(st)) => {
-                ended.push((*id, st.code()));
+            Ok(Some(code)) => {
+                ended.push((*id, code));
                 false
             }
             Err(_) => {
@@ -208,7 +303,7 @@ impl ProcessTable {
             .ok_or_else(|| VantaError::NotFound(format!("running profile {id}")))?;
         let _ = child.kill();
         child
-            .wait()
+            .wait_exit()
             .map(|_| ())
             .map_err(|e| VantaError::Storage(format!("wait for profile process: {e}")))
     }
@@ -230,6 +325,81 @@ mod job {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    /// Spawn `cmd` suspended, put it in `job`, then resume its (only) thread. On any
+    /// failure the child is killed and never runs.
+    pub fn spawn_in_job(mut cmd: std::process::Command, job: &KillOnCloseJob) -> Result<Child> {
+        use std::os::windows::process::CommandExt;
+        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
+        cmd.creation_flags(CREATE_SUSPENDED);
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| VantaError::Storage(format!("start engine: {e}")))?;
+        let fail = |child: &mut Child, e: VantaError| {
+            let _ = child.kill();
+            let _ = child.wait();
+            e
+        };
+        if let Err(e) = job.assign(&child) {
+            return Err(fail(&mut child, e));
+        }
+        if let Err(e) = resume_threads(child.id()) {
+            return Err(fail(&mut child, e));
+        }
+        Ok(child)
+    }
+
+    /// Resume every thread of `pid` (a process created suspended has exactly one).
+    fn resume_threads(pid: u32) -> Result<()> {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+        };
+        // SAFETY: a system-wide thread snapshot; the handle is checked and closed below.
+        let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snap == INVALID_HANDLE_VALUE {
+            return Err(last_error("CreateToolhelp32Snapshot"));
+        }
+        // SAFETY: zeroed THREADENTRY32 with dwSize set is what Thread32First expects.
+        let mut te: THREADENTRY32 = unsafe { std::mem::zeroed() };
+        te.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+        let mut resumed = 0;
+        let mut err = None;
+        // SAFETY: `snap` is a valid snapshot handle and `te` a writable entry.
+        let mut more = unsafe { Thread32First(snap, &mut te) } != 0;
+        while more {
+            if te.th32OwnerProcessID == pid {
+                // SAFETY: plain thread id; a null result is handled.
+                let th = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, te.th32ThreadID) };
+                if th.is_null() {
+                    err = Some(last_error("OpenThread"));
+                } else {
+                    // SAFETY: `th` is a valid thread handle we opened and close once.
+                    let prev = unsafe { ResumeThread(th) };
+                    unsafe { CloseHandle(th) };
+                    if prev == u32::MAX {
+                        err = Some(last_error("ResumeThread"));
+                    } else {
+                        resumed += 1;
+                    }
+                }
+            }
+            // SAFETY: as above.
+            more = unsafe { Thread32Next(snap, &mut te) } != 0;
+        }
+        // SAFETY: we own the snapshot handle and close it once.
+        unsafe { CloseHandle(snap) };
+        match (resumed, err) {
+            (0, Some(e)) => Err(e),
+            (0, None) => Err(VantaError::Storage(format!(
+                "engine process {pid} has no thread to resume"
+            ))),
+            _ => Ok(()),
+        }
+    }
 
     /// Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: when the app exits (or this
     /// value is dropped) Windows terminates every process assigned to it.
@@ -306,7 +476,15 @@ mod job {
 #[cfg(not(windows))]
 mod job {
     use std::process::Child;
-    use vanta_types::Result;
+    use vanta_types::{Result, VantaError};
+
+    /// Engines run on Windows only: elsewhere there is no suspended start and no Job
+    /// Object, so launching is refused instead of running the engine unconfined.
+    pub fn spawn_in_job(_cmd: std::process::Command, _job: &KillOnCloseJob) -> Result<Child> {
+        Err(VantaError::Invalid(
+            "the engine can only be launched on Windows (suspended start + Job Object)".into(),
+        ))
+    }
 
     /// Developer builds on non-Windows hosts: no Job Objects, nothing is enforced.
     /// Vanta ships for Windows only, where the real implementation is used.
@@ -328,7 +506,7 @@ mod job {
     }
 }
 
-pub use job::KillOnCloseJob;
+pub use job::{spawn_in_job, KillOnCloseJob};
 
 /// [`ClientAuthorizer`] backed by a profile's Job Object: a relay client is accepted only
 /// when its owning process is in the job (the engine and every process it spawned).
@@ -374,18 +552,46 @@ mod tests {
             proxy_max_age_ms: 300_000,
             relay_armed: true,
             rules_passed: true,
-            health_score: Some(90),
+            health: HealthGate::Fresh { score: 90 },
         }
     }
 
     #[test]
     fn gate_passes_when_everything_is_green() {
         assert_eq!(preflight(&good(), NOW), Ok(()));
-        let never_checked_health = Preflight {
-            health_score: None,
+        let health_run = Preflight {
+            health: HealthGate::NotRequired,
             ..good()
         };
-        assert_eq!(preflight(&never_checked_health, NOW), Ok(()));
+        assert_eq!(preflight(&health_run, NOW), Ok(()));
+    }
+
+    #[test]
+    fn missing_or_expired_health_blocks() {
+        let p = Preflight {
+            health: HealthGate::Missing,
+            ..good()
+        };
+        assert_eq!(preflight(&p, NOW), Err(vec![Block::HealthMissing]));
+        let p = Preflight {
+            health: HealthGate::Expired {
+                age_ms: 8 * 86_400_000,
+            },
+            ..good()
+        };
+        let b = preflight(&p, NOW).unwrap_err();
+        assert!(b[0].to_string().contains("8 days"), "{}", b[0]);
+    }
+
+    #[test]
+    fn exit_codes_are_typed() {
+        assert_eq!(
+            EngineExit::from_code(86),
+            Some(EngineExit::BadConfigSignature)
+        );
+        assert_eq!(EngineExit::from_code(87), Some(EngineExit::VersionMismatch));
+        assert_eq!(EngineExit::from_code(88), Some(EngineExit::IsolationBroken));
+        assert_eq!(EngineExit::from_code(1), None);
     }
 
     #[test]
@@ -412,7 +618,7 @@ mod tests {
             proxy_max_age_ms: 300_000,
             relay_armed: false,
             rules_passed: false,
-            health_score: Some(59),
+            health: HealthGate::Fresh { score: 59 },
         };
         let b = preflight(&p, NOW).unwrap_err();
         assert_eq!(
@@ -535,6 +741,111 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn spawn_in_job_is_refused_off_windows() {
+        let job = KillOnCloseJob::new().unwrap();
+        let e = spawn_in_job(long_running(), &job).unwrap_err();
+        assert!(e.to_string().contains("Windows"), "{e}");
+    }
+
+    /// The fix for the child-process race: the engine is created suspended, put into the
+    /// job, then resumed. `cmd /c ping` must therefore have its grandchild (ping) in the job
+    /// too, and the whole tree must die when the job handle closes.
+    #[cfg(windows)]
+    #[test]
+    fn suspended_spawn_puts_child_and_grandchild_in_the_job() {
+        let job = Arc::new(KillOnCloseJob::new().unwrap());
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/c", "ping -n 3 127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut child = spawn_in_job(cmd, &job).unwrap();
+        assert!(job.contains_pid(child.id()), "child is in the job");
+        // The grandchild (ping.exe) is started by cmd after the resume.
+        let start = Instant::now();
+        let grandchild = loop {
+            if let Some(pid) = winproc::child_of(child.id(), "ping.exe") {
+                break pid;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "ping.exe never started"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(job.contains_pid(grandchild), "grandchild inherited the job");
+        drop(job); // closes the handle: kill-on-close ends the whole tree
+        let start = Instant::now();
+        while child.try_wait().unwrap().is_none() {
+            assert!(start.elapsed() < Duration::from_secs(10), "tree not killed");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let start = Instant::now();
+        while winproc::alive(grandchild) {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "grandchild survived"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn suspended_spawn_runs_the_program_to_completion() {
+        let job = KillOnCloseJob::new().unwrap();
+        let mut cmd = Command::new("cmd.exe");
+        cmd.args(["/c", "exit 87"]);
+        let mut child = spawn_in_job(cmd, &job).unwrap();
+        assert_eq!(child.wait().unwrap().code(), Some(87), "resumed and ran");
+    }
+
+    #[cfg(windows)]
+    mod winproc {
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+
+        /// PID of a live child of `parent` whose image name is `exe` (case-insensitive).
+        pub fn child_of(parent: u32, exe: &str) -> Option<u32> {
+            procs()
+                .into_iter()
+                .find(|(_, ppid, name)| *ppid == parent && name.eq_ignore_ascii_case(exe))
+                .map(|(pid, _, _)| pid)
+        }
+
+        pub fn alive(pid: u32) -> bool {
+            procs().iter().any(|(p, _, _)| *p == pid)
+        }
+
+        fn procs() -> Vec<(u32, u32, String)> {
+            let mut out = Vec::new();
+            // SAFETY: process snapshot; handle checked and closed below.
+            let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+            if snap == INVALID_HANDLE_VALUE {
+                return out;
+            }
+            // SAFETY: zeroed entry with dwSize set, as Process32FirstW requires.
+            let mut pe: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+            pe.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            // SAFETY: valid snapshot and writable entry.
+            let mut more = unsafe { Process32FirstW(snap, &mut pe) } != 0;
+            while more {
+                let len = pe.szExeFile.iter().position(|c| *c == 0).unwrap_or(0);
+                let name = String::from_utf16_lossy(&pe.szExeFile[..len]);
+                out.push((pe.th32ProcessID, pe.th32ParentProcessID, name));
+                // SAFETY: as above.
+                more = unsafe { Process32NextW(snap, &mut pe) } != 0;
+            }
+            // SAFETY: we own the snapshot handle.
+            unsafe { CloseHandle(snap) };
+            out
+        }
     }
 
     #[test]

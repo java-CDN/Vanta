@@ -66,8 +66,9 @@ pub struct RelayConfig {
     /// Kill-switch heartbeat interval (default [`DEFAULT_HEARTBEAT`]; see the module docs
     /// for why it is not 1 s).
     pub heartbeat: Duration,
-    /// Which local processes may use the relay (default [`AllowedClients::Any`]; the
-    /// launcher sets [`AllowedClients::ProcessTree`] with the profile's Job Object).
+    /// Which local processes may use the relay. Starts as [`AllowedClients::Nobody`]
+    /// (fail closed); the launcher sets [`AllowedClients::ProcessTree`] with the profile's
+    /// Job Object.
     pub clients: AllowedClients,
 }
 
@@ -87,7 +88,7 @@ impl RelayConfig {
             policy: GuardPolicy::default(),
             connect_timeout: Duration::from_secs(10),
             heartbeat: DEFAULT_HEARTBEAT,
-            clients: AllowedClients::Any,
+            clients: AllowedClients::Nobody,
         }
     }
 
@@ -297,6 +298,7 @@ async fn accept_loop(listener: TcpListener, shared: Arc<Shared>, mut stop: watch
 /// Check the client against the relay's [`AllowedClients`] policy. The OS lookup is a
 /// blocking call, so it runs on the blocking pool.
 async fn authorize(shared: &Arc<Shared>, peer: SocketAddr) -> bool {
+    #[cfg(any(test, feature = "dev-any-client"))]
     if matches!(shared.cfg.clients, AllowedClients::Any) {
         return true;
     }
@@ -726,7 +728,8 @@ mod tests {
     }
 
     async fn relay_for(up: &MockUpstream, scheme: ProxyScheme, doh: Arc<MockDoh>) -> Relay {
-        let mut cfg = RelayConfig::new(up.endpoint(scheme), up.addr, doh);
+        let mut cfg =
+            RelayConfig::new(up.endpoint(scheme), up.addr, doh).with_clients(AllowedClients::Any);
         cfg.connect_timeout = Duration::from_secs(2);
         cfg.heartbeat = Duration::from_millis(100);
         Relay::start(cfg).await.unwrap()
@@ -1007,7 +1010,7 @@ mod tests {
         let cfg = RelayConfig::new(ep, "127.0.0.1:1080".parse().unwrap(), mock_doh());
         assert_eq!(cfg.heartbeat, Duration::from_secs(5));
         assert_eq!(DEFAULT_HEARTBEAT, Duration::from_secs(5));
-        assert!(matches!(cfg.clients, AllowedClients::Any));
+        assert!(matches!(cfg.clients, AllowedClients::Nobody), "fail closed");
         let mut cfg = cfg;
         cfg.heartbeat = Duration::from_millis(250);
         assert_eq!(cfg.heartbeat, Duration::from_millis(250));
@@ -1016,7 +1019,8 @@ mod tests {
     #[tokio::test]
     async fn default_heartbeat_still_cuts_live_traffic_within_one_second() {
         let up = MockUpstream::start(ProxyScheme::Socks5).await;
-        let mut cfg = RelayConfig::new(up.endpoint(ProxyScheme::Socks5), up.addr, mock_doh());
+        let mut cfg = RelayConfig::new(up.endpoint(ProxyScheme::Socks5), up.addr, mock_doh())
+            .with_clients(AllowedClients::Any);
         cfg.connect_timeout = Duration::from_secs(2);
         assert_eq!(cfg.heartbeat, DEFAULT_HEARTBEAT);
         let relay = Relay::start(cfg).await.unwrap();

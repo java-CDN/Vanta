@@ -68,11 +68,18 @@ pub enum UnknownPid {
 }
 
 /// The relay's client policy.
-#[derive(Clone, Default)]
+///
+/// There is no default: a relay built with [`crate::RelayConfig::new`] starts with
+/// [`AllowedClients::Nobody`] (fail closed) until the launcher sets
+/// [`AllowedClients::process_tree`] with the profile's Job Object. The permissive
+/// [`AllowedClients::Any`] only exists in this crate's own tests and in builds with the
+/// `dev-any-client` feature (developer hosts); release builds of the app cannot name it.
+#[derive(Clone)]
 pub enum AllowedClients {
-    /// Any local process may connect. Only for tests and developer hosts; the launcher
-    /// always sets [`AllowedClients::ProcessTree`] on Windows.
-    #[default]
+    /// Every client is refused (the fail-closed starting value).
+    Nobody,
+    /// Any local process may connect. Tests and the `dev-any-client` feature only.
+    #[cfg(any(test, feature = "dev-any-client"))]
     Any,
     /// Only processes the authorizer accepts.
     ProcessTree {
@@ -85,6 +92,8 @@ pub enum AllowedClients {
 impl std::fmt::Debug for AllowedClients {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AllowedClients::Nobody => f.write_str("Nobody"),
+            #[cfg(any(test, feature = "dev-any-client"))]
             AllowedClients::Any => f.write_str("Any"),
             AllowedClients::ProcessTree { unknown, .. } => f
                 .debug_struct("ProcessTree")
@@ -106,6 +115,8 @@ pub enum ClientVerdict {
     },
     /// The PID could not be found and the policy denies unknown clients.
     UnknownProcess,
+    /// The relay accepts nobody yet ([`AllowedClients::Nobody`]).
+    NoClientsAllowed,
 }
 
 impl ClientVerdict {
@@ -121,6 +132,7 @@ impl ClientVerdict {
                 Some("client process is not part of the profile's engine")
             }
             ClientVerdict::UnknownProcess => Some("client process could not be identified"),
+            ClientVerdict::NoClientsAllowed => Some("relay has no authorized client process"),
         }
     }
 }
@@ -138,6 +150,8 @@ impl AllowedClients {
     /// Check one accepted connection. Blocking (reads the OS connection table).
     pub fn check(&self, client: SocketAddr, server: SocketAddr) -> ClientVerdict {
         match self {
+            AllowedClients::Nobody => ClientVerdict::NoClientsAllowed,
+            #[cfg(any(test, feature = "dev-any-client"))]
             AllowedClients::Any => ClientVerdict::Allowed { pid: None },
             AllowedClients::ProcessTree {
                 authorizer,
@@ -261,6 +275,14 @@ mod tests {
         let (c, s) = addrs();
         assert!(AllowedClients::Any.check(c, s).allowed());
         assert!(AllowAll.allow(1));
+    }
+
+    #[test]
+    fn nobody_refuses_everything() {
+        let (c, s) = addrs();
+        let v = AllowedClients::Nobody.check(c, s);
+        assert_eq!(v, ClientVerdict::NoClientsAllowed);
+        assert!(v.reason().is_some());
     }
 
     #[test]

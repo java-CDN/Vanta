@@ -19,3 +19,4 @@ rcgen.workspace = true
 
 [dev-dependencies]
 vanta-launcher.workspace = true
+vanta-proxy = { workspace = true, features = ["dev-any-client"] }

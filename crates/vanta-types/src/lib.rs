@@ -116,6 +116,8 @@ pub enum ProfileStatus {
     Running,
     Sleeping,
     Blocked,
+    /// The engine ended on its own with an error (not a user stop, not a gate block).
+    Crashed,
 }
 
 impl ProfileStatus {
@@ -126,6 +128,7 @@ impl ProfileStatus {
             ProfileStatus::Running => "running",
             ProfileStatus::Sleeping => "sleeping",
             ProfileStatus::Blocked => "blocked",
+            ProfileStatus::Crashed => "crashed",
         }
     }
 }
@@ -139,6 +142,7 @@ impl FromStr for ProfileStatus {
             "running" => Self::Running,
             "sleeping" => Self::Sleeping,
             "blocked" => Self::Blocked,
+            "crashed" => Self::Crashed,
             _ => return Err(VantaError::Invalid(format!("status '{s}'"))),
         })
     }
@@ -199,7 +203,9 @@ mod tests {
 
     #[test]
     fn status_roundtrip() {
-        for s in ["stopped", "starting", "running", "sleeping", "blocked"] {
+        for s in [
+            "stopped", "starting", "running", "sleeping", "blocked", "crashed",
+        ] {
             assert_eq!(s.parse::<ProfileStatus>().unwrap().as_str(), s);
         }
     }

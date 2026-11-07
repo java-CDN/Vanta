@@ -15,6 +15,11 @@ tokio-rustls.workspace = true
 webpki-roots.workspace = true
 rand.workspace = true
 
+[features]
+# Developer hosts only: lets a relay accept any local client (AllowedClients::Any).
+# Never enabled by the app's release build.
+dev-any-client = []
+
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 

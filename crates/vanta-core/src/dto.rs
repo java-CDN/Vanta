@@ -1,0 +1,183 @@
+//! Serializable values the Tauri shell sends and receives. None of them can carry a
+//! password, a key or a recovery secret except [`VaultCreated`] (shown once).
+
+use serde::{Deserialize, Serialize};
+use vanta_log::{LogEntry, LogKind};
+use vanta_proxy::ProxyState;
+use vanta_store::{HealthSummary, ProfileMeta};
+use vanta_types::{OsKind, ProfileId, ProfileStatus};
+
+/// Returned once by `create_vault`: the recovery key to print. Never stored.
+#[derive(Debug, Clone, Serialize)]
+pub struct VaultCreated {
+    pub recovery_key: String,
+}
+
+/// Integrity of the activity log, checked at every unlock.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum LogIntegrity {
+    Ok,
+    /// The chain verifies but its head differs from the one kept in the vault: entries
+    /// were removed from the end (or the log was replaced by an older copy).
+    HeadMismatch {
+        detail: String,
+    },
+    /// The log file could not be read or authenticated; it was set aside and a new log
+    /// started.
+    Unreadable {
+        detail: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UnlockReport {
+    pub log_integrity: LogIntegrity,
+    /// Inline proxy lines from an older database moved into the vault at this unlock.
+    pub migrated_proxies: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfilePage {
+    pub items: Vec<ProfileMeta>,
+    pub total: i64,
+}
+
+/// What a profile looks like (non-secret summary of its persona).
+#[derive(Debug, Clone, Serialize)]
+pub struct PersonaSummary {
+    pub device_id: String,
+    pub os: OsKind,
+    pub user_agent: String,
+    pub screen: String,
+    pub gpu: String,
+    pub locale: String,
+    pub hardware_concurrency: u32,
+    pub device_memory: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfileDetail {
+    pub meta: ProfileMeta,
+    pub persona: PersonaSummary,
+    pub health: Option<HealthSummary>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct NewProfile {
+    pub name: String,
+    #[serde(default)]
+    pub folder: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// `None`: any Windows 10/11 device, by real-world weight.
+    #[serde(default)]
+    pub os: Option<OsKind>,
+    /// Defaults to `en-US`.
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub proxy_id: Option<String>,
+}
+
+/// Fields to change; `None` keeps the current value.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProfileEdit {
+    pub name: Option<String>,
+    pub folder: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub notes: Option<String>,
+    pub color: Option<String>,
+}
+
+/// A Proxy Hub entry as the UI sees it: never the password.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProxyView {
+    pub id: String,
+    pub scheme: String,
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub has_password: bool,
+    pub label: String,
+    pub state: ProxyState,
+    /// `scheme://user:***@host:port`.
+    pub display: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportLineError {
+    pub line: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportResult {
+    pub added: Vec<ProxyView>,
+    pub errors: Vec<ImportLineError>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AssignResult {
+    /// Other profiles already using the same exit (same scheme, host, port and user).
+    pub shared_with: Vec<ProfileId>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CheckProblem {
+    pub id: String,
+    pub title: String,
+    pub outcome: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HealthResult {
+    pub summary: HealthSummary,
+    /// Non-passing checks, worst first.
+    pub problems: Vec<CheckProblem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LaunchInfo {
+    pub profile_id: ProfileId,
+    pub pid: u32,
+    pub relay_port: u16,
+    pub engine_version: String,
+}
+
+/// A status the watcher wrote to the store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StatusChange {
+    pub profile_id: ProfileId,
+    pub status: ProfileStatus,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct LogQuery {
+    #[serde(default)]
+    pub kinds: Vec<LogKind>,
+    #[serde(default)]
+    pub profile: Option<ProfileId>,
+    #[serde(default)]
+    pub from_ms: Option<i64>,
+    #[serde(default)]
+    pub to_ms: Option<i64>,
+    #[serde(default)]
+    pub offset: usize,
+    /// 0 = 100.
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// A page of the activity log, newest first.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogPage {
+    pub entries: Vec<LogEntry>,
+    pub total: usize,
+}

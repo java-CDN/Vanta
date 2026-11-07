@@ -27,6 +27,8 @@ pub const KEY_LEN: usize = 32;
 const INFO_KEK: &[u8] = b"vanta/kek/v1";
 const INFO_RECOVERY: &[u8] = b"vanta/recovery/v1";
 const INFO_LOG: &[u8] = b"vanta/log/v1";
+const INFO_SECRETS: &[u8] = b"vanta/secrets/v1";
+const AAD_SECRET: &str = "vanta/secret/";
 const AAD_PW: &[u8] = b"vanta/vault-key/password";
 const AAD_REC: &[u8] = b"vanta/vault-key/recovery";
 
@@ -320,10 +322,30 @@ impl Vault {
         })
     }
 
+    /// Seal a vault secret (a proxy password, the launcher signing key, the activity-log
+    /// head...). `reference` is the name the secret is stored under; it is bound into the
+    /// AAD, so a sealed blob cannot be moved to another reference.
+    pub fn seal_secret(&self, reference: &str, plaintext: &[u8]) -> Result<Sealed> {
+        let k = self.keys()?.vault_key.derive(INFO_SECRETS);
+        Ok(Sealed::seal(&k, &secret_aad(reference), plaintext))
+    }
+
+    /// Open a secret sealed with [`Vault::seal_secret`] under the same `reference`.
+    pub fn open_secret(&self, reference: &str, sealed: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
+        let k = self.keys()?.vault_key.derive(INFO_SECRETS);
+        sealed.open(&k, &secret_aad(reference))
+    }
+
     /// Key for the encrypted, hash-chained activity log (F08).
     pub fn log_key(&self) -> Result<Key> {
         Ok(self.keys()?.vault_key.derive(INFO_LOG))
     }
+}
+
+fn secret_aad(reference: &str) -> Vec<u8> {
+    let mut a = AAD_SECRET.as_bytes().to_vec();
+    a.extend_from_slice(reference.as_bytes());
+    a
 }
 
 mod b64 {
@@ -460,6 +482,24 @@ mod tests {
         drop(pk);
         let (other, _) = v.new_profile_key(id).unwrap();
         assert!(other.open("config", &blob).is_err());
+    }
+
+    #[test]
+    fn secrets_bound_to_reference_and_need_unlock() {
+        let (mut v, _) = new_vault();
+        let s = v.seal_secret("proxy/a", b"hunter2").unwrap();
+        assert_eq!(&*v.open_secret("proxy/a", &s).unwrap(), b"hunter2");
+        assert!(v.open_secret("proxy/b", &s).is_err());
+        let json = v.header().to_json();
+        v.lock();
+        assert!(matches!(
+            v.open_secret("proxy/a", &s),
+            Err(VantaError::Locked)
+        ));
+        assert!(matches!(v.seal_secret("x", b"y"), Err(VantaError::Locked)));
+        let mut v2 = Vault::from_header(VaultHeader::from_json(&json).unwrap());
+        v2.unlock("correct horse battery").unwrap();
+        assert_eq!(&*v2.open_secret("proxy/a", &s).unwrap(), b"hunter2");
     }
 
     #[test]

@@ -4,6 +4,20 @@
 //! profile table can be searched without unlocking each profile. Fingerprint config,
 //! cookies and the like live in `config` as vault-sealed blobs. Deleting a row also
 //! deletes the profile's wrapped key, so the profile's files can no longer be decrypted.
+//!
+//! Schema 2 adds:
+//! - `proxies`: the Proxy Hub list. A row holds scheme, host, port, user name and the last
+//!   check state, never a password: the password is a vault secret and the row keeps only
+//!   its reference (`secret_ref`).
+//! - `vault_secrets`: opaque sealed blobs (`vanta-vault` `Vault::seal_secret`) by
+//!   reference: proxy passwords, the launcher signing key, the activity-log head. The store
+//!   never sees a key or a plaintext.
+//! - `health_reports`: the summary of each profile's last health run (F03).
+//!
+//! Before schema 2 a profile's `proxy_id` could hold an inline proxy line (with its
+//! password). [`Store::legacy_inline_proxies`] lists such rows so the app can move the
+//! password into the vault on the next unlock; [`Store::compact`] then rewrites the file so
+//! no freed page or WAL frame keeps the old text.
 
 pub mod query;
 
@@ -12,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use vanta_types::{OsKind, ProfileId, ProfileStatus, Result, VantaError};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE profiles (
@@ -56,6 +70,65 @@ CREATE TRIGGER profiles_au AFTER UPDATE OF name, tags, notes, exit_ip, folder ON
   VALUES (new.rowid, new.name, new.tags, new.notes, new.exit_ip, new.folder);
 END;
 "#;
+
+const MIGRATION_2: &str = r#"
+CREATE TABLE proxies (
+  id          TEXT PRIMARY KEY,
+  scheme      TEXT NOT NULL,
+  host        TEXT NOT NULL,
+  port        INTEGER NOT NULL,
+  username    TEXT,
+  secret_ref  TEXT,
+  label       TEXT NOT NULL DEFAULT '',
+  state       TEXT NOT NULL DEFAULT '{"state":"unknown"}',
+  created_ms  INTEGER NOT NULL
+);
+CREATE TABLE vault_secrets (
+  ref   TEXT PRIMARY KEY,
+  blob  BLOB NOT NULL
+);
+CREATE TABLE health_reports (
+  profile_id  TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+  score       INTEGER NOT NULL,
+  blocked     INTEGER NOT NULL,
+  failing     TEXT NOT NULL DEFAULT '',
+  engine      TEXT NOT NULL,
+  proxy_id    TEXT,
+  ts_ms       INTEGER NOT NULL
+);
+"#;
+
+/// One Proxy Hub entry. Holds no password: `secret_ref` names the vault secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyRecord {
+    pub id: String,
+    /// `http`, `https` or `socks5`.
+    pub scheme: String,
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    /// Reference of the sealed password in `vault_secrets`.
+    pub secret_ref: Option<String>,
+    pub label: String,
+    /// Last check, JSON of `vanta_proxy::ProxyState`.
+    pub state: String,
+    pub created_ms: i64,
+}
+
+/// Summary of a profile's last health run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HealthSummary {
+    pub profile_id: ProfileId,
+    pub score: u8,
+    pub blocked: bool,
+    /// Ids of checks that failed (H01...).
+    pub failing: Vec<String>,
+    /// Engine version the run used.
+    pub engine: String,
+    /// Proxy the run went through.
+    pub proxy_id: Option<String>,
+    pub ts_ms: i64,
+}
 
 /// Searchable, non-secret part of a profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +300,10 @@ impl Store {
         if v < 1 {
             conn.execute_batch(MIGRATION_1).map_err(db)?;
             conn.pragma_update(None, "user_version", 1).map_err(db)?;
+        }
+        if v < 2 {
+            conn.execute_batch(MIGRATION_2).map_err(db)?;
+            conn.pragma_update(None, "user_version", 2).map_err(db)?;
         }
         Ok(Self { conn })
     }
@@ -442,6 +519,255 @@ impl Store {
             out.push(finish(r.map_err(db)?)?);
         }
         Ok((out, total))
+    }
+
+    /// Point a profile at a proxy (or none).
+    pub fn set_proxy_id(&self, id: ProfileId, proxy_id: Option<&str>) -> Result<()> {
+        self.exec1(
+            "UPDATE profiles SET proxy_id=? WHERE id=?",
+            params![proxy_id, id.to_string()],
+            id,
+        )
+    }
+
+    /// Every profile with a proxy: `(profile, proxy id)`.
+    pub fn assignments(&self) -> Result<Vec<(ProfileId, String)>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, proxy_id FROM profiles WHERE proxy_id IS NOT NULL")
+            .map_err(db)?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(db)?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (id, p) = r.map_err(db)?;
+            out.push((id.parse()?, p));
+        }
+        Ok(out)
+    }
+
+    // ---- proxies -------------------------------------------------------------------
+
+    pub fn insert_proxies(&mut self, items: &[ProxyRecord]) -> Result<usize> {
+        let tx = self.conn.transaction().map_err(db)?;
+        {
+            let mut st = tx
+                .prepare("INSERT INTO proxies (id,scheme,host,port,username,secret_ref,label,state,created_ms) VALUES (?,?,?,?,?,?,?,?,?)")
+                .map_err(db)?;
+            for p in items {
+                st.execute(params![
+                    p.id,
+                    p.scheme,
+                    p.host,
+                    p.port as i64,
+                    p.username,
+                    p.secret_ref,
+                    p.label,
+                    p.state,
+                    p.created_ms
+                ])
+                .map_err(db)?;
+            }
+        }
+        tx.commit().map_err(db)?;
+        Ok(items.len())
+    }
+
+    fn row_proxy(r: &Row) -> rusqlite::Result<ProxyRecord> {
+        Ok(ProxyRecord {
+            id: r.get(0)?,
+            scheme: r.get(1)?,
+            host: r.get(2)?,
+            port: r.get::<_, i64>(3)?.clamp(0, 65535) as u16,
+            username: r.get(4)?,
+            secret_ref: r.get(5)?,
+            label: r.get(6)?,
+            state: r.get(7)?,
+            created_ms: r.get(8)?,
+        })
+    }
+
+    pub fn get_proxy(&self, id: &str) -> Result<ProxyRecord> {
+        self.conn
+            .query_row(
+                "SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms FROM proxies WHERE id=?",
+                [id],
+                Self::row_proxy,
+            )
+            .optional()
+            .map_err(db)?
+            .ok_or_else(|| VantaError::NotFound(format!("proxy {id}")))
+    }
+
+    pub fn list_proxies(&self) -> Result<Vec<ProxyRecord>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms FROM proxies ORDER BY created_ms, id")
+            .map_err(db)?;
+        let rows = st.query_map([], Self::row_proxy).map_err(db)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(db)
+    }
+
+    pub fn set_proxy_state(&self, id: &str, state_json: &str) -> Result<()> {
+        match self
+            .conn
+            .execute(
+                "UPDATE proxies SET state=? WHERE id=?",
+                params![state_json, id],
+            )
+            .map_err(db)?
+        {
+            0 => Err(VantaError::NotFound(format!("proxy {id}"))),
+            _ => Ok(()),
+        }
+    }
+
+    /// Delete a proxy, its sealed password, and every profile's link to it.
+    pub fn delete_proxy(&mut self, id: &str) -> Result<()> {
+        let tx = self.conn.transaction().map_err(db)?;
+        let secret: Option<String> = tx
+            .query_row("SELECT secret_ref FROM proxies WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(db)?
+            .ok_or_else(|| VantaError::NotFound(format!("proxy {id}")))?;
+        if let Some(r) = secret {
+            tx.execute("DELETE FROM vault_secrets WHERE ref=?", [r])
+                .map_err(db)?;
+        }
+        tx.execute("UPDATE profiles SET proxy_id=NULL WHERE proxy_id=?", [id])
+            .map_err(db)?;
+        tx.execute("DELETE FROM health_reports WHERE proxy_id=?", [id])
+            .map_err(db)?;
+        tx.execute("DELETE FROM proxies WHERE id=?", [id])
+            .map_err(db)?;
+        tx.commit().map_err(db)
+    }
+
+    /// Profiles whose `proxy_id` is not a Proxy Hub id: inline proxy lines written before
+    /// schema 2 (they may hold a password in clear). `(profile, raw value)`.
+    pub fn legacy_inline_proxies(&self) -> Result<Vec<(ProfileId, String)>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, proxy_id FROM profiles WHERE proxy_id IS NOT NULL AND proxy_id NOT IN (SELECT id FROM proxies)")
+            .map_err(db)?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(db)?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (id, raw) = r.map_err(db)?;
+            out.push((id.parse()?, raw));
+        }
+        Ok(out)
+    }
+
+    // ---- vault secrets (sealed, opaque) -------------------------------------------
+
+    pub fn put_secret(&self, reference: &str, sealed: &[u8]) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO vault_secrets (ref, blob) VALUES (?, ?) ON CONFLICT(ref) DO UPDATE SET blob=excluded.blob",
+                params![reference, sealed],
+            )
+            .map(|_| ())
+            .map_err(db)
+    }
+
+    pub fn get_secret(&self, reference: &str) -> Result<Option<Vec<u8>>> {
+        self.conn
+            .query_row(
+                "SELECT blob FROM vault_secrets WHERE ref=?",
+                [reference],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)
+    }
+
+    pub fn delete_secret(&self, reference: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM vault_secrets WHERE ref=?", [reference])
+            .map(|_| ())
+            .map_err(db)
+    }
+
+    // ---- health --------------------------------------------------------------------
+
+    /// Store a health summary and copy its score to the profile row.
+    pub fn put_health(&mut self, h: &HealthSummary) -> Result<()> {
+        let tx = self.conn.transaction().map_err(db)?;
+        let n = tx
+            .execute(
+                "UPDATE profiles SET health=? WHERE id=?",
+                params![h.score as i64, h.profile_id.to_string()],
+            )
+            .map_err(db)?;
+        if n == 0 {
+            return Err(VantaError::NotFound(format!("profile {}", h.profile_id)));
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO health_reports (profile_id,score,blocked,failing,engine,proxy_id,ts_ms) VALUES (?,?,?,?,?,?,?)",
+            params![
+                h.profile_id.to_string(),
+                h.score as i64,
+                h.blocked,
+                h.failing.join(" "),
+                h.engine,
+                h.proxy_id,
+                h.ts_ms
+            ],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)
+    }
+
+    pub fn get_health(&self, id: ProfileId) -> Result<Option<HealthSummary>> {
+        self.conn
+            .query_row(
+                "SELECT score,blocked,failing,engine,proxy_id,ts_ms FROM health_reports WHERE profile_id=?",
+                [id.to_string()],
+                |r| {
+                    Ok(HealthSummary {
+                        profile_id: id,
+                        score: r.get::<_, i64>(0)?.clamp(0, 100) as u8,
+                        blocked: r.get(1)?,
+                        failing: r
+                            .get::<_, String>(2)?
+                            .split_whitespace()
+                            .map(String::from)
+                            .collect(),
+                        engine: r.get(3)?,
+                        proxy_id: r.get(4)?,
+                        ts_ms: r.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(db)
+    }
+
+    /// Forget a profile's health run (its proxy or fingerprint changed).
+    pub fn clear_health(&self, id: ProfileId) -> Result<()> {
+        self.conn
+            .execute(
+                "DELETE FROM health_reports WHERE profile_id=?",
+                [id.to_string()],
+            )
+            .map(|_| ())
+            .map_err(db)
+    }
+
+    /// Fold the WAL into the main file and rebuild it, so no free page or WAL frame keeps
+    /// data that was overwritten (used after moving legacy passwords into the vault).
+    pub fn compact(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);",
+            )
+            .map_err(db)
     }
 
     fn exec1(&self, sql: &str, p: impl rusqlite::Params, id: ProfileId) -> Result<()> {
@@ -683,6 +1009,110 @@ mod tests {
             c.pragma_update(None, "user_version", 99).unwrap();
         }
         assert!(Store::open(&path).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn proxy(id: &str) -> ProxyRecord {
+        ProxyRecord {
+            id: id.into(),
+            scheme: "socks5".into(),
+            host: "198.51.100.9".into(),
+            port: 1080,
+            username: Some("user".into()),
+            secret_ref: Some(format!("proxy/{id}")),
+            label: String::new(),
+            state: r#"{"state":"unknown"}"#.into(),
+            created_ms: 1,
+        }
+    }
+
+    #[test]
+    fn proxies_secrets_and_links() {
+        let mut s = sample();
+        s.insert_proxies(&[proxy("p1"), proxy("p2")]).unwrap();
+        s.put_secret("proxy/p1", &[1, 2, 3]).unwrap();
+        s.put_secret("proxy/p1", &[4, 5]).unwrap();
+        assert_eq!(s.get_secret("proxy/p1").unwrap(), Some(vec![4, 5]));
+        let id = s.search("shop-de", 1, 0).unwrap().0[0].id;
+        s.set_proxy_id(id, Some("p1")).unwrap();
+        assert_eq!(s.assignments().unwrap(), vec![(id, "p1".to_string())]);
+        s.set_proxy_state("p1", r#"{"state":"online"}"#).unwrap();
+        assert!(s.get_proxy("p1").unwrap().state.contains("online"));
+        assert_eq!(s.list_proxies().unwrap().len(), 2);
+        s.delete_proxy("p1").unwrap();
+        assert_eq!(s.get_secret("proxy/p1").unwrap(), None);
+        assert_eq!(s.get(id).unwrap().proxy_id, None);
+        assert!(matches!(s.get_proxy("p1"), Err(VantaError::NotFound(_))));
+        assert!(s.set_proxy_state("p1", "{}").is_err());
+    }
+
+    #[test]
+    fn legacy_inline_proxy_rows_are_listed() {
+        let mut s = sample();
+        s.insert_proxies(&[proxy("p1")]).unwrap();
+        let a = s.search("shop-de", 1, 0).unwrap().0[0].id;
+        let b = s.search("shop-nl", 1, 0).unwrap().0[0].id;
+        s.set_proxy_id(a, Some("p1")).unwrap();
+        s.set_proxy_id(b, Some("socks5://u:pw@198.51.100.1:1080"))
+            .unwrap();
+        assert_eq!(
+            s.legacy_inline_proxies().unwrap(),
+            vec![(b, "socks5://u:pw@198.51.100.1:1080".to_string())]
+        );
+    }
+
+    #[test]
+    fn health_summary_roundtrip_and_cascade() {
+        let mut s = sample();
+        let id = s.search("qa-jp", 1, 0).unwrap().0[0].id;
+        assert_eq!(s.get_health(id).unwrap(), None);
+        let h = HealthSummary {
+            profile_id: id,
+            score: 41,
+            blocked: true,
+            failing: vec!["H01".into(), "H12".into()],
+            engine: "156.0.8078.79".into(),
+            proxy_id: Some("p1".into()),
+            ts_ms: 9,
+        };
+        s.put_health(&h).unwrap();
+        assert_eq!(s.get_health(id).unwrap(), Some(h));
+        assert_eq!(s.get(id).unwrap().health, 41);
+        s.clear_health(id).unwrap();
+        assert_eq!(s.get_health(id).unwrap(), None);
+        s.put_health(&HealthSummary {
+            profile_id: id,
+            score: 90,
+            blocked: false,
+            failing: vec![],
+            engine: "x".into(),
+            proxy_id: None,
+            ts_ms: 1,
+        })
+        .unwrap();
+        s.delete(&[id]).unwrap();
+        assert_eq!(s.get_health(id).unwrap(), None, "cascade on delete");
+        s.compact().unwrap();
+    }
+
+    #[test]
+    fn schema_1_database_is_migrated() {
+        let dir = std::env::temp_dir().join(format!("vanta-store-v1-{}", ProfileId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(MIGRATION_1).unwrap();
+            c.pragma_update(None, "user_version", 1).unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        assert!(s.list_proxies().unwrap().is_empty());
+        let v: i64 = s
+            .conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 2);
+        drop(s);
         std::fs::remove_dir_all(dir).ok();
     }
 

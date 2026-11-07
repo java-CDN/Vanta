@@ -15,7 +15,7 @@ use vanta_health::tls::chrome;
 use vanta_health::{testkit, HealthInput, HealthLab, Reflector, ReflectorConfig, StunResponder};
 use vanta_proxy::doh::BoxFuture;
 use vanta_proxy::net::NetResult;
-use vanta_proxy::{ProxyEndpoint, ProxyScheme, Relay, RelayConfig, Resolver};
+use vanta_proxy::{AllowedClients, ProxyEndpoint, ProxyScheme, Relay, RelayConfig, Resolver};
 
 /// Accepts exactly the reflector's certificate, like Chrome with
 /// `--ignore-certificate-errors-spki-list`.
@@ -302,7 +302,8 @@ async fn dns_leak_hook_sees_names_resolved_by_the_relay() {
         ProxyEndpoint::new(ProxyScheme::Socks5, "127.0.0.1", up.port(), None),
         up,
         watch.clone(),
-    );
+    )
+    .with_clients(AllowedClients::Any);
     let relay = Relay::start(cfg).await.unwrap();
     let test = DnsLeakTest::new(3);
     // The engine hands host names to the relay (SOCKS5 remote DNS): no leak.

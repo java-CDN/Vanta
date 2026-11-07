@@ -86,7 +86,8 @@ impl HealthReport {
             .collect()
     }
 
-    /// Value for `vanta_launcher::Preflight::health_score`.
+    /// Score for `vanta_launcher::HealthGate::Fresh` (the gate also checks the report's age,
+    /// engine and proxy; `vanta-core` does that).
     pub fn preflight_score(&self) -> Option<u8> {
         Some(self.score)
     }

@@ -14,6 +14,53 @@ pub struct SignedConfig {
     pub signature: String,
 }
 
+/// What a launch adds to the persona: which profile, which relay port, when. Signed
+/// together with the persona, so a config cannot be replayed against another relay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchBinding {
+    pub profile_id: String,
+    /// Port of the profile's relay on 127.0.0.1 (the engine's only proxy).
+    pub relay_port: u16,
+    pub issued_ms: i64,
+}
+
+/// The signed payload of a launch: the persona's own fields at the top level (the engine
+/// patch 0002 reads `engine.{major,minor,build,patch}` from the top-level object) plus
+/// `vanta_launch`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LaunchPayload {
+    #[serde(flatten)]
+    pub persona: Persona,
+    pub vanta_launch: LaunchBinding,
+}
+
+/// Sign a launch config: `{"payload": "<persona + vanta_launch JSON>", "signature":
+/// "<base64 Ed25519 over the payload bytes>"}`, the format engine patch 0002 verifies.
+pub fn sign_launch(p: &Persona, binding: &LaunchBinding, key: &SigningKey) -> SignedConfig {
+    let payload = serde_json::to_string(&LaunchPayload {
+        persona: p.clone(),
+        vanta_launch: binding.clone(),
+    })
+    .expect("launch payload serializes");
+    let sig = key.sign(payload.as_bytes());
+    SignedConfig {
+        payload,
+        signature: STANDARD.encode(sig.to_bytes()),
+    }
+}
+
+impl SignedConfig {
+    /// The file the engine reads with `--vanta-config`.
+    pub fn to_file_json(&self) -> String {
+        serde_json::to_string(self).expect("signed config serializes")
+    }
+}
+
+/// Value of `--vanta-pubkey`: the 32-byte Ed25519 public key, standard base64.
+pub fn pubkey_b64(key: &VerifyingKey) -> String {
+    STANDARD.encode(key.as_bytes())
+}
+
 pub fn new_signing_key() -> SigningKey {
     SigningKey::generate(&mut rand::rngs::OsRng)
 }
@@ -115,6 +162,38 @@ mod tests {
                 EngineVersion::new(156, 0, 8078, 82)
             ),
             Err(87)
+        );
+    }
+
+    #[test]
+    fn launch_payload_keeps_engine_at_top_level_and_verifies() {
+        let k = new_signing_key();
+        let b = LaunchBinding {
+            profile_id: "p".into(),
+            relay_port: 40123,
+            issued_ms: 5,
+        };
+        let cfg = sign_launch(&persona(), &b, &k);
+        let v: serde_json::Value = serde_json::from_str(&cfg.payload).unwrap();
+        assert_eq!(v["engine"]["major"], 156);
+        assert_eq!(v["engine"]["patch"], 79);
+        assert_eq!(v["vanta_launch"]["relay_port"], 40123);
+        assert_eq!(v["user_agent"], persona().user_agent);
+        // The engine-side check still accepts it, and the payload round-trips.
+        assert_eq!(
+            verify_for_engine(&cfg, &k.verifying_key(), V).unwrap(),
+            persona()
+        );
+        let back: LaunchPayload = serde_json::from_str(&cfg.payload).unwrap();
+        assert_eq!(back.vanta_launch, b);
+        let file: serde_json::Value = serde_json::from_str(&cfg.to_file_json()).unwrap();
+        assert!(file["payload"].is_string() && file["signature"].is_string());
+        assert_eq!(
+            STANDARD
+                .decode(pubkey_b64(&k.verifying_key()))
+                .unwrap()
+                .len(),
+            32
         );
     }
 
