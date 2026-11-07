@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quality gates (Master Plan v2, section 9). Fails on the first problem.
+# Quality gates (Master Plan v3). Fails on the first problem.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"

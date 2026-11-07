@@ -60,9 +60,11 @@ fn os_alias(v: &str) -> Result<String> {
     Ok(match v.to_ascii_lowercase().as_str() {
         "win11" | "windows11" | "w11" => "windows11",
         "win10" | "windows10" | "w10" => "windows10",
-        "mac" | "macos" | "osx" => "mac_os",
-        "linux" | "ubuntu" => "linux",
-        other => return Err(VantaError::Invalid(format!("unknown os '{other}'"))),
+        other => {
+            return Err(VantaError::Invalid(format!(
+                "unknown os '{other}' (use win10 or win11)"
+            )))
+        }
     }
     .to_string())
 }
@@ -229,6 +231,8 @@ mod tests {
     #[test]
     fn errors_are_clear() {
         assert!(parse("os:beos").is_err());
+        assert!(parse("os:mac").is_err());
+        assert!(parse("os:linux").is_err());
         assert!(parse("health:<abc").is_err());
         assert!(parse("health:>101").is_err());
         assert!(parse("status:flying").is_err());

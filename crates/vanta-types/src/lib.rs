@@ -1,4 +1,4 @@
-//! Shared types for every Vanta crate. Defined once here (Master Plan v2, section 3).
+//! Shared types for every Vanta crate. Defined once here (Master Plan v3).
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -91,23 +91,19 @@ impl FromStr for EngineVersion {
     }
 }
 
-/// Operating system a persona claims to be (desktop only; mobile personas are out of scope).
+/// Operating system a persona claims to be. Vanta personas are Windows 10/11 x64 desktops
+/// only (Master Plan v3, R1); every other OS is rejected at parse time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OsKind {
     Windows10,
     Windows11,
-    MacOs,
-    Linux,
 }
 
 impl OsKind {
+    /// OS family name as used by UA-CH `platform`.
     pub fn family(&self) -> &'static str {
-        match self {
-            OsKind::Windows10 | OsKind::Windows11 => "Windows",
-            OsKind::MacOs => "macOS",
-            OsKind::Linux => "Linux",
-        }
+        "Windows"
     }
 }
 
@@ -148,7 +144,7 @@ impl FromStr for ProfileStatus {
     }
 }
 
-/// Exit codes shared by launcher and engine patch (Master Plan v2, section 6).
+/// Exit codes shared by launcher and engine patch (Master Plan v3).
 pub mod exit_codes {
     pub const BAD_CONFIG_SIGNATURE: i32 = 86;
     pub const VERSION_MISMATCH: i32 = 87;
@@ -212,6 +208,19 @@ mod tests {
         assert_eq!(id, back);
         let json = serde_json::to_string(&id).unwrap();
         assert_eq!(serde_json::from_str::<ProfileId>(&json).unwrap(), id);
+    }
+
+    #[test]
+    fn os_kind_is_windows_only() {
+        assert_eq!(OsKind::Windows10.family(), "Windows");
+        assert_eq!(OsKind::Windows11.family(), "Windows");
+        assert_eq!(
+            serde_json::to_string(&OsKind::Windows11).unwrap(),
+            "\"windows11\""
+        );
+        for legacy in ["\"mac_os\"", "\"linux\"", "\"android\""] {
+            assert!(serde_json::from_str::<OsKind>(legacy).is_err(), "{legacy}");
+        }
     }
 
     #[test]

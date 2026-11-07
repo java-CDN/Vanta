@@ -1,6 +1,6 @@
 //! Real-device records (R11). A record is a whole, coherent device: fields are never mixed
 //! across records. Browser version fields in the JSON are ignored; the UA is always built
-//! from the installed engine (R5).
+//! from the installed engine (R5). Windows 10/11 records only (R1).
 
 use serde::{Deserialize, Serialize};
 use vanta_types::{OsKind, Result, VantaError};
@@ -62,12 +62,10 @@ impl DeviceRecord {
     pub fn os_kind(&self) -> Result<OsKind> {
         Ok(match (self.os.as_str(), self.os_version.as_str()) {
             ("windows", "11") => OsKind::Windows11,
-            ("windows", _) => OsKind::Windows10,
-            ("macos", _) => OsKind::MacOs,
-            ("linux", _) => OsKind::Linux,
-            (o, _) => {
+            ("windows", "10") => OsKind::Windows10,
+            (o, v) => {
                 return Err(VantaError::Invalid(format!(
-                    "record {}: unsupported os '{o}'",
+                    "record {}: unsupported os '{o} {v}' (Windows 10/11 only)",
                     self.id
                 )))
             }
@@ -93,13 +91,24 @@ mod tests {
     #[test]
     fn builtin_loads_and_ids_unique() {
         let d = builtin();
-        assert_eq!(d.len(), 14);
+        assert_eq!(d.len(), 9);
         let mut ids: Vec<_> = d.iter().map(|r| r.id.clone()).collect();
         ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), 14);
+        assert_eq!(ids.len(), 9);
         for r in &d {
             r.os_kind().unwrap();
+            assert_eq!(r.os, "windows");
+        }
+    }
+
+    #[test]
+    fn non_windows_record_rejected() {
+        let mut r = builtin().remove(0);
+        for (os, ver) in [("macos", "10_15_7"), ("linux", "x86_64"), ("windows", "8")] {
+            r.os = os.into();
+            r.os_version = ver.into();
+            assert!(r.os_kind().is_err(), "{os} {ver}");
         }
     }
 }

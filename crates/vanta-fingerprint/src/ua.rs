@@ -75,26 +75,22 @@ pub fn header(list: &[BrandVersion]) -> String {
         .join(", ")
 }
 
+/// OS token of the reduced User-Agent. Chrome freezes it for every Windows release and
+/// CPU (Windows 10, Windows 11 and ARM64 all send the same token); the real release and
+/// architecture are only exposed through UA-CH `platformVersion` / `architecture`.
+pub const WINDOWS_UA_TOKEN: &str = "Windows NT 10.0; Win64; x64";
+
 /// Reduced User-Agent string, as Chrome sends it.
-pub fn user_agent(os: OsKind, v: &EngineVersion) -> String {
-    let platform = match os {
-        OsKind::Windows10 | OsKind::Windows11 => "Windows NT 10.0; Win64; x64",
-        OsKind::MacOs => "Macintosh; Intel Mac OS X 10_15_7",
-        OsKind::Linux => "X11; Linux x86_64",
-    };
+pub fn user_agent(_os: OsKind, v: &EngineVersion) -> String {
     format!(
-        "Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36",
+        "Mozilla/5.0 ({WINDOWS_UA_TOKEN}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{} Safari/537.36",
         v.reduced()
     )
 }
 
 /// UA-CH `platform` value.
 pub fn ch_platform(os: OsKind) -> &'static str {
-    match os {
-        OsKind::Windows10 | OsKind::Windows11 => "Windows",
-        OsKind::MacOs => "macOS",
-        OsKind::Linux => "Linux",
-    }
+    os.family()
 }
 
 #[cfg(test)]
@@ -149,9 +145,9 @@ mod tests {
 
     #[test]
     fn ua_strings() {
-        assert_eq!(
-            user_agent(OsKind::Windows11, &V156),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
-        );
+        let expected = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36";
+        assert_eq!(user_agent(OsKind::Windows11, &V156), expected);
+        assert_eq!(user_agent(OsKind::Windows10, &V156), expected);
+        assert_eq!(ch_platform(OsKind::Windows10), "Windows");
     }
 }

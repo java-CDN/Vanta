@@ -108,8 +108,6 @@ fn os_str(o: OsKind) -> &'static str {
     match o {
         OsKind::Windows10 => "windows10",
         OsKind::Windows11 => "windows11",
-        OsKind::MacOs => "mac_os",
-        OsKind::Linux => "linux",
     }
 }
 
@@ -117,9 +115,11 @@ fn os_from(s: &str) -> Result<OsKind> {
     Ok(match s {
         "windows10" => OsKind::Windows10,
         "windows11" => OsKind::Windows11,
-        "mac_os" => OsKind::MacOs,
-        "linux" => OsKind::Linux,
-        _ => return Err(VantaError::Storage(format!("bad os '{s}'"))),
+        _ => {
+            return Err(VantaError::Storage(format!(
+                "unsupported profile os '{s}': Vanta personas are Windows 10/11 only"
+            )))
+        }
     })
 }
 
@@ -497,7 +497,7 @@ mod tests {
             ),
             p(
                 "ads-us-02",
-                OsKind::MacOs,
+                OsKind::Windows10,
                 "Ads",
                 &["ads", "us"],
                 "US",
@@ -638,9 +638,20 @@ mod tests {
     }
 
     #[test]
+    fn os_roundtrip_and_legacy_values_rejected() {
+        for o in [OsKind::Windows10, OsKind::Windows11] {
+            assert_eq!(os_from(os_str(o)).unwrap(), o);
+        }
+        for legacy in ["mac_os", "linux", "android", ""] {
+            let e = os_from(legacy).unwrap_err().to_string();
+            assert!(e.contains("Windows 10/11 only"), "{legacy}: {e}");
+        }
+    }
+
+    #[test]
     fn tags_are_normalized() {
         let mut s = Store::open_in_memory().unwrap();
-        let mut m = ProfileMeta::new("t", OsKind::Linux, 1);
+        let mut m = ProfileMeta::new("t", OsKind::Windows10, 1);
         m.tags = vec!["Shop".into(), " shop ".into(), "Batch Nov".into()];
         s.insert(&m, &ProfileSecrets::default()).unwrap();
         assert_eq!(s.get(m.id).unwrap().tags, ["batch-nov", "shop"]);
@@ -678,15 +689,10 @@ mod tests {
     #[test]
     fn search_10k_profiles_fast() {
         let mut s = Store::open_in_memory().unwrap();
-        let oses = [
-            OsKind::Windows11,
-            OsKind::Windows10,
-            OsKind::MacOs,
-            OsKind::Linux,
-        ];
+        let oses = [OsKind::Windows11, OsKind::Windows10];
         let rows: Vec<ProfileMeta> = (0..10_000)
             .map(|i| {
-                let mut m = ProfileMeta::new(format!("profile-{i:05}"), oses[i % 4], 1);
+                let mut m = ProfileMeta::new(format!("profile-{i:05}"), oses[i % 2], 1);
                 m.tags = vec![["shop", "ads", "social", "qa"][i % 4].into()];
                 m.health = (i % 101) as u8;
                 m.exit_ip = format!("203.0.{}.{}", i / 250, i % 250);
@@ -696,7 +702,7 @@ mod tests {
             .collect();
         let e = ProfileSecrets::default();
         s.insert_many(rows.iter().map(|m| (m, &e))).unwrap();
-        for q in ["tag:shop health:<50", "profile-0999", "os:linux", "203.0.7"] {
+        for q in ["tag:shop health:<50", "profile-0999", "os:win10", "203.0.7"] {
             s.search(q, 50, 0).unwrap(); // warm the statement cache
             let t = std::time::Instant::now();
             let (r, _) = s.search(q, 50, 0).unwrap();

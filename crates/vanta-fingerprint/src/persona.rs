@@ -71,7 +71,7 @@ pub struct Persona {
     pub canvas_seed: u64,
     pub audio_seed: u64,
     pub clientrects_seed: u64,
-    /// Always "disable_non_proxied_udp" (C026).
+    /// Always "disable_non_proxied_udp" (C024).
     pub webrtc_policy: String,
 }
 
