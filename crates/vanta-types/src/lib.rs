@@ -163,6 +163,9 @@ pub enum VantaError {
     Crypto,
     #[error("storage error: {0}")]
     Storage(String),
+    /// A proxy, relay or DoH connection failed (F04/F05). Never carries a password.
+    #[error("network error: {0}")]
+    Network(String),
     #[error("version lock (C030): persona Chrome {persona} != engine {engine}")]
     VersionMismatch { persona: String, engine: String },
 }

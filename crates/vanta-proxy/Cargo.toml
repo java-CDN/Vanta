@@ -1,0 +1,20 @@
+[package]
+name = "vanta-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta-types.workspace = true
+serde.workspace = true
+sha2.workspace = true
+base64.workspace = true
+zeroize.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+uuid.workspace = true

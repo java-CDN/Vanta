@@ -42,10 +42,13 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 
 | Path | Contents |
 |------|----------|
-| `crates/vanta-types` | Shared types: `EngineVersion`, `ProfileId`, `OsKind` (Windows 10/11), exit codes 86/87/88. |
+| `crates/vanta-types` | Shared types: `EngineVersion`, `ProfileId`, `OsKind` (Windows 10/11), `ProfileStatus`, exit codes 86/87/88, `VantaError`. |
 | `crates/vanta-vault` | Vault Lock (F06) and the activity-log key (F08). |
 | `crates/vanta-store` | SQLite + FTS5 profile database and search language (F01). |
 | `crates/vanta-fingerprint` | Real Windows device records, UA / UA-CH from the engine version, rules C001–C030, Ed25519-signed launch config (F02, F07). |
+| `crates/vanta-proxy` | Proxy Hub (F04): import grammar (`host:port`, `host:port:user:pass`, `user:pass@host:port`, `scheme://…` for http/https/socks5), username presets for Bright Data, SOAX, Geonode, DataImpulse, Webshare and Thordata with a sticky per-profile session, one-proxy-one-profile warning, offline launch gate, SOCKS5 UDP ASSOCIATE probe. Network Guard (F05): tokio relay on `127.0.0.1:<ephemeral>` with SOCKS5/HTTP(S) upstreams, DoH (Cloudflare/Google/Quad9 or custom, sent through the proxy), IPv6/LAN/UDP blocked, fail-closed kill switch. TLS is rustls + ring. |
+| `crates/vanta-log` | Activity Log (F08): append-only, SHA-256 hash chain, XChaCha20-Poly1305 at rest under the vault's log key, 90-day retention with an anchor so the pruned chain still verifies, filters by kind/profile/time. |
+| `crates/vanta-launcher` | Launcher skeleton: launch gate (proxy online, guard armed, rules passed, health ≥ 60), engine command line (no CDP), process status from the real child process, Windows Job Object kill-on-close. |
 | `engine/` | The engine (`vanta-chromium.exe`): pinned upstream, Vanta Chromium patches, GN flags, build scripts. See `engine/README.md`. |
 | `.github/workflows/engine-s1.yml`, `engine-s2.yml` | Engine CI stages S1 (patches apply, ubuntu) and S2 (`gn gen --check`, windows). |
 | `scripts/check.sh` | All local quality gates. |
@@ -89,6 +92,15 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | C028 | GPU family matches CPU architecture: Qualcomm Adreno ⇔ `arm`, all others ⇔ `x86` |
 | C029 | Real Windows taskbar gap: full available width, 24–80 px less available height |
 | C030 | Version lock: UA and UA-CH version equal the installed engine |
+
+## Network Guard
+
+Every profile's engine talks only to its own local relay (`--proxy-server=socks5://127.0.0.1:<port>`).
+The relay opens the upstream tunnel before it accepts a single client byte, resolves names over
+DNS-over-HTTPS through the proxy (never the system resolver), refuses IPv6, LAN and UDP
+(non-proxied UDP), and cuts every connection the moment the upstream proxy fails. It never
+falls back to a direct connection. The kill switch and the WebRTC rule
+(`disable_non_proxied_udp`) have no "off" value in the types, so no profile can disable them.
 
 ## Develop
 

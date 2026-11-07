@@ -24,10 +24,17 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
 data-encoding = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "0.26"
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 vanta-types = { path = "crates/vanta-types" }
 vanta-vault = { path = "crates/vanta-vault" }
 vanta-store = { path = "crates/vanta-store" }
 vanta-fingerprint = { path = "crates/vanta-fingerprint" }
+vanta-proxy = { path = "crates/vanta-proxy" }
+vanta-log = { path = "crates/vanta-log" }
+vanta-launcher = { path = "crates/vanta-launcher" }
 
 [profile.release]
 lto = "thin"
