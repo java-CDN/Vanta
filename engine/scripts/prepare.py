@@ -29,11 +29,14 @@ ALL_STEPS = ('source', 'windeps', 'prune', 'patch', 'domsub', 'rust', 'args', 'g
 
 # `gn check` scope. The whole graph cannot pass: the -lite tarball has no test
 # sources (v8/test/unittests, ...) and some upstream test targets have include
-# errors after ungoogled's patches. So the check covers the shipping browser
-# targets and everything Vanta adds.
+# errors after ungoogled's patches. Everything Vanta adds must pass (fatal);
+# the large upstream browser targets are checked too, but only reported, so an
+# upstream include issue there cannot block the Vanta pipeline.
 GN_CHECK_TARGETS = (
     '//chrome/browser/vanta/*',
     '//chrome:chrome_initial',
+)
+GN_CHECK_ADVISORY = (
     '//chrome:chrome_dll',
     '//chrome/browser:browser',
 )
@@ -271,6 +274,12 @@ class Ctx:
         if self.check:
             self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default', *GN_CHECK_TARGETS)
             log('gn check ok: ' + ' '.join(GN_CHECK_TARGETS))
+            try:
+                self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default',
+                             *GN_CHECK_ADVISORY)
+                log('gn check (advisory) ok: ' + ' '.join(GN_CHECK_ADVISORY))
+            except SystemExit as exc:
+                log(f'WARNING gn check (advisory, upstream targets) failed: {exc}')
 
 
 def main():
