@@ -12,15 +12,32 @@
 //!    the connection succeeded, so no client byte is accepted without a live tunnel;
 //! 5. pumps bytes until either side closes.
 //!
+//! Before step 1 the client itself is checked against [`RelayConfig::clients`]
+//! ([`AllowedClients`]): on Windows the relay looks up the PID that owns the client's end of
+//! the connection and accepts it only when that process belongs to the profile's engine
+//! (its Job Object). Chromium cannot authenticate to SOCKS5, so this is how other local
+//! processes are kept off the profile's proxy. A refused client is closed at once, before a
+//! single byte is read, and reported as [`RelayEvent::Blocked`].
+//!
 //! Kill switch (fail closed, cannot be disabled): a heartbeat checks the upstream proxy
 //! every `heartbeat` interval (TCP connect, TLS for https, SOCKS5 greeting + login). When
 //! the proxy fails, or a tunnel fails because the proxy is down, the switch trips: every
 //! open client connection is cut and new ones are refused. There is no direct fallback
 //! anywhere in this module. The switch re-arms when the heartbeat succeeds again.
 //!
+//! The heartbeat defaults to [`DEFAULT_HEARTBEAT`] (5 s). Every heartbeat is a fresh
+//! connection and, for SOCKS5 with a login, a fresh authentication at the provider.
+//! Residential providers count and rate-limit these (a 1 s heartbeat is 86,400 logins per
+//! profile per day, which trips provider abuse limits and can rotate a sticky session).
+//! Detection does not depend on the heartbeat alone: a tunnel read error or a failed tunnel
+//! setup (proxy down) trips the switch at once, and when the proxy dies the open tunnels
+//! close with it, so live traffic still stops well inside the F05 1 s budget. The heartbeat
+//! only bounds how long an *idle* relay takes to notice. It stays configurable.
+//!
 //! Every block and kill-switch change is published as a [`RelayEvent`] for the activity
 //! log (F08).
 
+use crate::clients::{AllowedClients, ClientVerdict};
 use crate::doh::Resolver;
 use crate::endpoint::ProxyEndpoint;
 use crate::guard::{is_blocked_ip, GuardPolicy};
@@ -46,9 +63,16 @@ pub struct RelayConfig {
     pub resolver: Arc<dyn Resolver>,
     pub policy: GuardPolicy,
     pub connect_timeout: Duration,
-    /// Kill-switch heartbeat interval (default 1 s, the F05 acceptance budget).
+    /// Kill-switch heartbeat interval (default [`DEFAULT_HEARTBEAT`]; see the module docs
+    /// for why it is not 1 s).
     pub heartbeat: Duration,
+    /// Which local processes may use the relay (default [`AllowedClients::Any`]; the
+    /// launcher sets [`AllowedClients::ProcessTree`] with the profile's Job Object).
+    pub clients: AllowedClients,
 }
+
+/// Default kill-switch heartbeat: 5 s, so provider login rate limits are not hit.
+pub const DEFAULT_HEARTBEAT: Duration = Duration::from_secs(5);
 
 impl RelayConfig {
     pub fn new(
@@ -62,8 +86,15 @@ impl RelayConfig {
             resolver,
             policy: GuardPolicy::default(),
             connect_timeout: Duration::from_secs(10),
-            heartbeat: Duration::from_secs(1),
+            heartbeat: DEFAULT_HEARTBEAT,
+            clients: AllowedClients::Any,
         }
+    }
+
+    /// Set the client policy.
+    pub fn with_clients(mut self, clients: AllowedClients) -> Self {
+        self.clients = clients;
+        self
     }
 }
 
@@ -92,7 +123,9 @@ pub enum GuardState {
 /// What the relay reports to the activity log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RelayEvent {
-    /// A request was refused by policy (UDP, IPv6, LAN, plain HTTP...).
+    /// A request was refused by policy (UDP, IPv6, LAN, plain HTTP, a local process that
+    /// is not this profile's engine...). For a refused client `target` is
+    /// `client <addr> (pid <n>)`.
     Blocked {
         target: String,
         reason: &'static str,
@@ -105,6 +138,7 @@ pub enum RelayEvent {
 
 struct Shared {
     cfg: RelayConfig,
+    addr: SocketAddr,
     state: watch::Sender<GuardState>,
     shutdown: watch::Sender<bool>,
     events: broadcast::Sender<RelayEvent>,
@@ -178,6 +212,7 @@ impl Relay {
         let (events, _) = broadcast::channel(256);
         let shared = Arc::new(Shared {
             cfg,
+            addr,
             state: watch::channel(initial).0,
             shutdown: watch::channel(false).0,
             events,
@@ -245,13 +280,40 @@ async fn accept_loop(listener: TcpListener, shared: Arc<Shared>, mut stop: watch
         tokio::select! {
             _ = stop.changed() => break,
             r = listener.accept() => {
-                let Ok((client, _)) = r else { continue };
+                let Ok((client, peer)) = r else { continue };
                 let _ = client.set_nodelay(true);
                 let sh = shared.clone();
-                tokio::spawn(async move { handle_client(client, sh).await });
+                tokio::spawn(async move {
+                    if authorize(&sh, peer).await {
+                        handle_client(client, sh).await
+                    }
+                    // else: dropped unread, the client sees the connection close.
+                });
             }
         }
     }
+}
+
+/// Check the client against the relay's [`AllowedClients`] policy. The OS lookup is a
+/// blocking call, so it runs on the blocking pool.
+async fn authorize(shared: &Arc<Shared>, peer: SocketAddr) -> bool {
+    if matches!(shared.cfg.clients, AllowedClients::Any) {
+        return true;
+    }
+    let policy = shared.cfg.clients.clone();
+    let server = shared.addr;
+    let verdict = tokio::task::spawn_blocking(move || policy.check(peer, server))
+        .await
+        .unwrap_or(ClientVerdict::UnknownProcess);
+    if let Some(reason) = verdict.reason() {
+        let who = match verdict {
+            ClientVerdict::NotInProcessTree { pid } => format!("client {peer} (pid {pid})"),
+            _ => format!("client {peer} (pid unknown)"),
+        };
+        shared.blocked(who, reason);
+        return false;
+    }
+    true
 }
 
 async fn heartbeat_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
@@ -525,6 +587,7 @@ async fn pump(client: TcpStream, upstream: BoxStream, shared: &Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clients::{PidLookup, SystemPidLookup, UnknownPid};
     use crate::doh::BoxFuture;
     use crate::endpoint::{Credentials, ProxyScheme};
     use crate::net::NetResult;
@@ -936,6 +999,155 @@ mod tests {
         relay.shutdown().await;
         let r = tokio::time::timeout(Duration::from_secs(1), c.read(&mut [0u8; 4])).await;
         assert!(matches!(r, Ok(Ok(0)) | Ok(Err(_))), "{r:?}");
+    }
+
+    #[test]
+    fn heartbeat_defaults_to_five_seconds_and_stays_configurable() {
+        let ep = ProxyEndpoint::new(ProxyScheme::Socks5, "127.0.0.1", 1080, None);
+        let cfg = RelayConfig::new(ep, "127.0.0.1:1080".parse().unwrap(), mock_doh());
+        assert_eq!(cfg.heartbeat, Duration::from_secs(5));
+        assert_eq!(DEFAULT_HEARTBEAT, Duration::from_secs(5));
+        assert!(matches!(cfg.clients, AllowedClients::Any));
+        let mut cfg = cfg;
+        cfg.heartbeat = Duration::from_millis(250);
+        assert_eq!(cfg.heartbeat, Duration::from_millis(250));
+    }
+
+    #[tokio::test]
+    async fn default_heartbeat_still_cuts_live_traffic_within_one_second() {
+        let up = MockUpstream::start(ProxyScheme::Socks5).await;
+        let mut cfg = RelayConfig::new(up.endpoint(ProxyScheme::Socks5), up.addr, mock_doh());
+        cfg.connect_timeout = Duration::from_secs(2);
+        assert_eq!(cfg.heartbeat, DEFAULT_HEARTBEAT);
+        let relay = Relay::start(cfg).await.unwrap();
+        let target = TargetAddr::Domain("example.test".into(), 443);
+        let (code, mut c) = socks_connect(relay.local_addr(), &target).await;
+        assert_eq!(code, 0);
+        echo_ok(&mut c).await;
+        up.task.abort();
+        let _ = up.task.await;
+        let t0 = std::time::Instant::now();
+        let r = tokio::time::timeout(Duration::from_secs(1), c.read(&mut [0u8; 4])).await;
+        assert!(matches!(r, Ok(Ok(0)) | Ok(Err(_))), "client not cut: {r:?}");
+        // The next request fails to open a tunnel, which trips the switch at once instead
+        // of waiting for the 5 s heartbeat.
+        let (code, _) = socks_connect(relay.local_addr(), &target).await;
+        assert_ne!(code, 0);
+        assert!(relay.is_tripped());
+        assert!(t0.elapsed() < Duration::from_secs(2));
+        relay.shutdown().await;
+    }
+
+    /// PID lookup injected by the tests: always answers `pid`.
+    struct FakeLookup(Option<u32>);
+    impl PidLookup for FakeLookup {
+        fn owning_pid(&self, client: SocketAddr, server: SocketAddr) -> Option<u32> {
+            assert!(client.ip().is_loopback() && server.ip().is_loopback());
+            self.0
+        }
+    }
+
+    async fn relay_with_clients(up: &MockUpstream, clients: AllowedClients) -> Relay {
+        let mut cfg = RelayConfig::new(up.endpoint(ProxyScheme::Socks5), up.addr, mock_doh())
+            .with_clients(clients);
+        cfg.connect_timeout = Duration::from_secs(2);
+        cfg.heartbeat = Duration::from_millis(100);
+        Relay::start(cfg).await.unwrap()
+    }
+
+    fn engine_tree(pid: Option<u32>, unknown: UnknownPid) -> AllowedClients {
+        AllowedClients::ProcessTree {
+            authorizer: Arc::new(|p: u32| p == 4242),
+            lookup: Arc::new(FakeLookup(pid)),
+            unknown,
+        }
+    }
+
+    #[tokio::test]
+    async fn authorized_engine_process_may_use_the_relay() {
+        let up = MockUpstream::start(ProxyScheme::Socks5).await;
+        let relay = relay_with_clients(&up, engine_tree(Some(4242), UnknownPid::Deny)).await;
+        let (code, mut c) = socks_connect(
+            relay.local_addr(),
+            &TargetAddr::Domain("example.test".into(), 443),
+        )
+        .await;
+        assert_eq!(code, 0);
+        echo_ok(&mut c).await;
+        relay.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn foreign_process_is_refused_and_reported() {
+        let up = MockUpstream::start(ProxyScheme::Socks5).await;
+        let relay = relay_with_clients(&up, engine_tree(Some(999), UnknownPid::Allow)).await;
+        let mut ev = relay.events();
+        assert!(socks_greeting(relay.local_addr()).await.is_none());
+        match ev.recv().await.unwrap() {
+            RelayEvent::Blocked { target, reason } => {
+                assert!(target.contains("pid 999"), "{target}");
+                assert!(reason.contains("not part of the profile"), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(up.targets.lock().unwrap().is_empty());
+        relay.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn unknown_pid_is_decided_by_policy() {
+        let up = MockUpstream::start(ProxyScheme::Socks5).await;
+        let deny = relay_with_clients(&up, engine_tree(None, UnknownPid::Deny)).await;
+        let mut ev = deny.events();
+        assert!(socks_greeting(deny.local_addr()).await.is_none());
+        match ev.recv().await.unwrap() {
+            RelayEvent::Blocked { target, reason } => {
+                assert!(target.contains("pid unknown"));
+                assert!(reason.contains("could not be identified"));
+            }
+            other => panic!("{other:?}"),
+        }
+        deny.shutdown().await;
+        let allow = relay_with_clients(&up, engine_tree(None, UnknownPid::Allow)).await;
+        assert_eq!(socks_greeting(allow.local_addr()).await, Some([5, 0]));
+        allow.shutdown().await;
+    }
+
+    /// Real OS lookup. On Windows the owning PID of the test's own connection is this
+    /// process: allowed when authorized, refused when not. Elsewhere the lookup has no
+    /// table, so the unknown-PID policy decides.
+    #[tokio::test]
+    async fn system_lookup_identifies_this_process() {
+        let me = std::process::id();
+        let up = MockUpstream::start(ProxyScheme::Socks5).await;
+        let mine = AllowedClients::ProcessTree {
+            authorizer: Arc::new(move |p: u32| p == me),
+            lookup: Arc::new(SystemPidLookup),
+            unknown: UnknownPid::Deny,
+        };
+        let not_mine = AllowedClients::ProcessTree {
+            authorizer: Arc::new(move |p: u32| p != me),
+            lookup: Arc::new(SystemPidLookup),
+            unknown: UnknownPid::Deny,
+        };
+        let ok = relay_with_clients(&up, mine).await;
+        let refused = relay_with_clients(&up, not_mine).await;
+        let mut ev = refused.events();
+        if cfg!(windows) {
+            assert_eq!(socks_greeting(ok.local_addr()).await, Some([5, 0]));
+            assert!(socks_greeting(refused.local_addr()).await.is_none());
+            match ev.recv().await.unwrap() {
+                RelayEvent::Blocked { target, .. } => {
+                    assert!(target.contains(&format!("pid {me}")), "{target}")
+                }
+                other => panic!("{other:?}"),
+            }
+        } else {
+            assert!(socks_greeting(ok.local_addr()).await.is_none());
+            assert!(socks_greeting(refused.local_addr()).await.is_none());
+        }
+        ok.shutdown().await;
+        refused.shutdown().await;
     }
 
     #[tokio::test]

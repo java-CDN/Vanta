@@ -10,7 +10,9 @@
 //! - [`ProcessTable`] reports status from the real child process (never guessed), which is
 //!   what `vanta-store::Store::set_status` is fed with.
 //! - [`KillOnCloseJob`]: on Windows a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`;
-//!   elsewhere (developer builds only) a no-op.
+//!   elsewhere (developer builds only) a no-op. Use one job per profile: it is also the
+//!   profile's engine process tree for the relay's client check ([`JobAuthorizer`],
+//!   [`relay_clients`]), since every child the engine spawns inherits the job.
 //!
 //! Still to do (next phase): wiring relay start/stop per launch, exit-code handling in the
 //! UI, and writing launch/stop entries to `vanta-log`.
@@ -19,7 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use vanta_proxy::{GuardPolicy, LaunchBlock, ProxyState};
+use std::sync::Arc;
+use vanta_proxy::{AllowedClients, ClientAuthorizer, GuardPolicy, LaunchBlock, ProxyState};
 use vanta_types::{exit_codes, ProfileId, ProfileStatus, Result, VantaError};
 
 /// A health score below this blocks launch (F03).
@@ -220,12 +223,13 @@ mod job {
     use std::os::windows::io::AsRawHandle;
     use std::process::Child;
     use vanta_types::{Result, VantaError};
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
     /// Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: when the app exits (or this
     /// value is dropped) Windows terminates every process assigned to it.
@@ -273,6 +277,22 @@ mod job {
             }
             Ok(())
         }
+
+        /// Whether process `pid` is in this job (`IsProcessInJob`). A process that cannot
+        /// be opened (gone, or no access) is reported as not in the job.
+        pub fn contains_pid(&self, pid: u32) -> bool {
+            // SAFETY: OpenProcess with a plain PID; a null result is handled.
+            let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+            if h.is_null() {
+                return false;
+            }
+            let mut inside: BOOL = 0;
+            // SAFETY: `h` and the job handle are valid; `inside` is a writable BOOL.
+            let ok = unsafe { IsProcessInJob(h, self.0, &mut inside) };
+            // SAFETY: we opened `h` above and close it once.
+            unsafe { CloseHandle(h) };
+            ok != 0 && inside != 0
+        }
     }
 
     impl Drop for KillOnCloseJob {
@@ -300,10 +320,41 @@ mod job {
         pub fn assign(&self, _child: &Child) -> Result<()> {
             Ok(())
         }
+
+        /// No Job Objects here: membership is unknown, reported as not in the job.
+        pub fn contains_pid(&self, _pid: u32) -> bool {
+            false
+        }
     }
 }
 
 pub use job::KillOnCloseJob;
+
+/// [`ClientAuthorizer`] backed by a profile's Job Object: a relay client is accepted only
+/// when its owning process is in the job (the engine and every process it spawned).
+#[derive(Clone)]
+pub struct JobAuthorizer {
+    job: Arc<KillOnCloseJob>,
+}
+
+impl JobAuthorizer {
+    pub fn new(job: Arc<KillOnCloseJob>) -> Self {
+        Self { job }
+    }
+}
+
+impl ClientAuthorizer for JobAuthorizer {
+    fn allow(&self, pid: u32) -> bool {
+        self.job.contains_pid(pid)
+    }
+}
+
+/// The relay client policy for a profile: on Windows only processes in the profile's job
+/// may use its relay, and a client whose PID cannot be found is refused. Pass the result to
+/// `vanta_proxy::RelayConfig::with_clients`.
+pub fn relay_clients(job: Arc<KillOnCloseJob>) -> AllowedClients {
+    AllowedClients::process_tree(Arc::new(JobAuthorizer::new(job)))
+}
 
 #[cfg(test)]
 mod tests {
@@ -462,6 +513,28 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert_eq!(t.status(id), ProfileStatus::Stopped);
+    }
+
+    #[test]
+    fn job_authorizer_accepts_only_job_members() {
+        let job = Arc::new(KillOnCloseJob::new().unwrap());
+        let auth = JobAuthorizer::new(job.clone());
+        // This test process was never assigned to the job.
+        assert!(!auth.allow(std::process::id()));
+        let mut child = long_running().spawn().unwrap();
+        job.assign(&child).unwrap();
+        // Membership is real on Windows; non-Windows hosts have no jobs and say no.
+        assert_eq!(auth.allow(child.id()), cfg!(windows));
+        assert!(!auth.allow(0xFFFF_FFF0), "unknown PIDs are never members");
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(matches!(
+            relay_clients(job),
+            AllowedClients::ProcessTree {
+                unknown: vanta_proxy::UnknownPid::Deny,
+                ..
+            }
+        ));
     }
 
     #[test]
