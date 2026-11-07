@@ -30,10 +30,68 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo fmt
         run: cargo fmt --all --check
+      # vanta-desktop (the Tauri shell) needs the built UI; the "desktop" job checks it.
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude vanta-desktop --all-targets -- -D warnings
       - name: cargo test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude vanta-desktop
+
+  desktop:
+    name: Desktop app (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+      - name: npm ci
+        run: npm ci
+      - name: typecheck + vitest
+        run: npm test
+      - name: build UI (Tauri) + bundle budget
+        run: |
+          npm run build
+          npm run size
+      - name: smoke (mock build, headless Chrome)
+        run: |
+          npm run build:mock
+          npm run smoke
+      - name: cargo clippy (vanta-desktop)
+        run: cargo clippy -p vanta-desktop --all-targets -- -D warnings
+      - name: tauri build (NSIS, unsigned)
+        run: npx tauri build --bundles nsis
+      - name: sizes
+        shell: bash
+        working-directory: .
+        run: |
+          ls -l target/release/vanta.exe target/release/bundle/nsis/
+          echo "vanta.exe: $(stat -c %s target/release/vanta.exe) bytes"
+          for f in target/release/bundle/nsis/*.exe; do echo "installer $(basename "$f"): $(stat -c %s "$f") bytes"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vanta-desktop-nsis
+          path: target/release/bundle/nsis/*-setup.exe
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-smoke-shots
+          path: apps/desktop/smoke-shots/
+          retention-days: 7
+          if-no-files-found: ignore
 
   no-telemetry:
     name: No telemetry (ubuntu-latest)

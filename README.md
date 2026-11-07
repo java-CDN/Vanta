@@ -50,6 +50,7 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `crates/vanta-log` | Activity Log (F08): append-only, SHA-256 hash chain, XChaCha20-Poly1305 at rest under the vault's log key, 90-day retention with an anchor so the pruned chain still verifies, filters by kind/profile/time. |
 | `crates/vanta-launcher` | Launch gate (proxy online, guard armed, rules passed, health ≥ 60 and fresh), engine command line (no CDP), typed exit codes 86/87/88, process status from the real child process, Windows Job Object kill-on-close. The engine starts `CREATE_SUSPENDED`, is assigned to the profile's job, then resumed (`spawn_in_job`), so every child it spawns is in the job. One job per profile doubles as the relay's client authorizer (`JobAuthorizer`, `IsProcessInJob`). |
 | `crates/vanta-core` | Orchestration and the Tauri-facing API (`VantaApp`, serde DTOs): launch flow (vault → persona bound to the engine → per-launch relay with Job-Object-only clients → gate incl. last health report → Ed25519-signed launch config in the 0002 format → suspended start in the job), status watcher, relay events and launches into the activity log with the log head sealed in the vault and verified at unlock, health runs, profile/proxy CRUD, lock/unlock. |
+| `apps/desktop` | The desktop app (Tauri 2): `src-tauri/` (crate `vanta-desktop`, binary `vanta.exe`) wraps `VantaApp` in IPC commands and pushes status, activity-log and lock events; `ui/` is the React + TypeScript interface ported from the approved prototype, with one typed backend interface (`ui/src/api/`: `backend.ts` types the calls, `tauri.ts` maps them to commands), a mock backend for browser development, vitest unit tests and a headless smoke test. See [Desktop app](#desktop-app). |
 | `crates/vanta-health` | Health Check (F03), local-only: HTTPS reflector on `127.0.0.1` (rustls + ring, self-signed rcgen certificate) that parses the raw TLS ClientHello (JA4), the HTTP/2 client start (SETTINGS order, WINDOW_UPDATE, pseudo-header order) and HTTP/1.1 header order; STUN Binding responder (WebRTC leaks); DNS leak hook on the relay's resolver; static probe page (no CDP, no external fetch); 56 checks H01–H56 in 8 areas with a weighted 0–100 score. |
 | `engine/` | The engine (`vanta-chromium.exe`): pinned upstream, Vanta Chromium patches, GN flags, build scripts. See `engine/README.md`. |
 | `.github/workflows/engine-s1.yml`, `engine-s2.yml` | Engine CI stages S1 (patches apply, ubuntu) and S2 (`gn gen --check`, windows). |
@@ -197,6 +198,67 @@ Vanta engine build.
 | H56 | `aut.notif` | Automation flags | info | Notification.permission = default |
 
 
+## Desktop app
+
+`apps/desktop` is the Vanta window: a Tauri 2 shell (`src-tauri/`) over `vanta-core::VantaApp`
+and a React + TypeScript UI (`ui/`, Vite, no UI framework beyond React) ported from the
+approved clickable prototype.
+
+**Screens** (hash routes): Unlock / Create vault (recovery key shown once, recovery-key
+unlock) · Profiles (`#/profiles`: folders, saved searches, search language
+`tag: os: status: health: proxy: folder:` and `OR` run by the SQLite/FTS5 store, filters,
+sort, virtualized table for 10k+ profiles, live status, launch/stop, bulk launch/stop/move/
+health/delete, details drawer, edit, duplicate) · New Profile (`#/new`: seed-picked real
+device record with live preview of the exact persona that will be saved, regenerate seed,
+proxy with one-proxy-one-profile warning, locale, DoH provider, pre-save rule check) ·
+Fingerprint Studio (`#/fingerprints`: read-only identity in 7 tabs, rules C001–C030,
+Regenerate; the User-Agent and Chrome version are fixed by design, rule C030) · Health Check
+(`#/health`: run, 0–100 score, 56 checks by 8 areas with explanations, score history,
+report export) · Proxy Hub (`#/proxies`: import with preview, test, test all, assign with
+shared-proxy warning, delete) with the Geo Auto-Match tab (`#/geo`) · Network Guard
+(`#/network`: guards that cannot be turned off, per-profile DoH provider, traffic path,
+DNS/WebRTC leak test, blocked today) · Vault Lock (Ctrl+L, Lock now, idle auto-lock enforced
+by the shell, change master password in Settings › Security & vault) · Activity Log
+(`#/activity`: paged, filtered by kind/profile/date, chain status from the unlock check,
+CSV export with a warning) · Settings (`#/settings/<section>`: general, security & vault,
+engine path, data, appearance, privacy, about).
+
+**Shell.** Commands are thin wrappers over `VantaApp` (blocking work and the async launch /
+health / proxy-test calls run on the blocking pool); every command must be listed in
+`src-tauri/build.rs`, which turns it into an `allow-…` permission, and
+`capabilities/default.json` grants the main window exactly those plus event listen/unlisten
+(no fs, shell, http, opener or updater plugin). Strict CSP (`'self'` only, no remote
+content), no telemetry, devtools only in debug builds, single instance, window title
+"Vanta". Background loops push engine status changes (1 s), new activity-log entries (2 s)
+and the idle auto-lock (the UI reports activity; the timer runs in Rust). Closing the window
+with running profiles asks first; quitting closes every profile's Job Object, which ends its
+engine. Data lives in `%LOCALAPPDATA%\Vanta`; `settings.json` there holds the UI settings and
+an optional engine path override.
+
+**Engine.** The installer does not bundle the engine yet (P3). The app looks for
+`%LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe` (or the path set in
+Settings › Engine, read at start-up) and the `VERSION` file next to it; until the engine is
+there, launches and health runs fail with a clear error and everything else works.
+
+### Run it
+
+```sh
+cd apps/desktop
+npm ci
+npm run dev:mock          # UI in a browser at http://127.0.0.1:1420 with demo data (?unlocked=1, ?fresh=1, ?profiles=10000)
+npm run tauri dev         # the real app (Windows; WebView2)
+npm run tauri build -- --bundles nsis   # unsigned NSIS installer in target/release/bundle/nsis
+```
+
+Tests: `npm test` (tsc + vitest: API mapping, search language, health catalog vs
+`vanta-health`, mock backend, import parser), `npm run build && npm run size` (bundle budget
+300 KB gzip), `npm run build:mock && npm run smoke` (headless Chromium over the mock build;
+set `CHROME_PATH` if Chrome/Chromium is not in a standard place).
+
+**Memory (R6).** The manager is `vanta.exe` plus the WebView2 processes Windows runs for its
+window; WebView2 memory sits outside the manager process. The < 80 MB idle target has to be
+measured on real Windows (Task Manager, the app's process group), not in CI.
+
 ## Develop
 
 Requires the stable Rust toolchain (see `rust-toolchain.toml`). The crates build and test on
@@ -204,11 +266,18 @@ Windows directly; on Linux, install `gcc-mingw-w64-x86-64` and the `x86_64-pc-wi
 target for the Windows cross-check.
 
 ```sh
-bash scripts/check.sh   # fmt, clippy -D warnings, tests, Windows target check, no-telemetry
+bash scripts/check.sh   # fmt, clippy -D warnings, tests, Windows target check, no-telemetry, desktop UI gates
 ```
 
-CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on `windows-latest`, and the
-no-telemetry scan on `ubuntu-latest`, for every push and pull request to `main`.
+`check.sh` leaves the Tauri crate (`vanta-desktop`) out of the Rust gates: it links WebView2
+on Windows and webkit2gtk elsewhere. The desktop UI gates (vitest, builds, bundle budget,
+smoke) run when `npm` is available.
+
+CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on `windows-latest`, the
+desktop job (vitest, bundle budget, smoke over the mock build, clippy for `vanta-desktop`,
+`tauri build` → unsigned NSIS installer uploaded as the `vanta-desktop-nsis` artifact, kept
+7 days) on `windows-latest`, and the no-telemetry scan on `ubuntu-latest`, for every push and
+pull request to `main`.
 
 ## License
 
