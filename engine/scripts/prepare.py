@@ -272,14 +272,16 @@ class Ctx:
         self._run_vc('out\\Default\\gn.exe', 'gen', 'out\\Default', '--fail-on-unused-args')
         log('gn gen ok')
         if self.check:
-            self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default', *GN_CHECK_TARGETS)
-            log('gn check ok: ' + ' '.join(GN_CHECK_TARGETS))
-            try:
-                self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default',
-                             *GN_CHECK_ADVISORY)
-                log('gn check (advisory) ok: ' + ' '.join(GN_CHECK_ADVISORY))
-            except SystemExit as exc:
-                log(f'WARNING gn check (advisory, upstream targets) failed: {exc}')
+            # gn check takes one label pattern per call.
+            for t in GN_CHECK_TARGETS:
+                self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default', t)
+                log('gn check ok: ' + t)
+            for t in GN_CHECK_ADVISORY:
+                try:
+                    self._run_vc('out\\Default\\gn.exe', 'check', 'out\\Default', t)
+                    log('gn check (advisory) ok: ' + t)
+                except SystemExit as exc:
+                    log(f'WARNING gn check (advisory, upstream target {t}) failed: {exc}')
 
 
 def main():
