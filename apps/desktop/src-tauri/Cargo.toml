@@ -1,0 +1,28 @@
+[package]
+name = "vanta-desktop"
+description = "Vanta desktop shell: Tauri 2 window over vanta-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "vanta"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# No updater, shell, fs, http or opener plugins: the UI talks only to the commands below.
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+vanta-core.workspace = true
+vanta-types.workspace = true
+vanta-proxy.workspace = true
+vanta-vault.workspace = true
+tokio.workspace = true
+vanta-store.workspace = true

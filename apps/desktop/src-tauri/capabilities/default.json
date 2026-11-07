@@ -1,0 +1,42 @@
+{
+  "identifier": "default",
+  "description": "Main window: the Vanta commands and listening to Vanta events. Nothing else.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-app-info",
+    "allow-create-vault",
+    "allow-unlock",
+    "allow-unlock-with-recovery",
+    "allow-lock",
+    "allow-change-password",
+    "allow-list-profiles",
+    "allow-folders",
+    "allow-get-profile",
+    "allow-create-profile",
+    "allow-edit-profile",
+    "allow-delete-profiles",
+    "allow-fingerprint",
+    "allow-preview-fingerprint",
+    "allow-regenerate-fingerprint",
+    "allow-list-proxies",
+    "allow-import-proxies",
+    "allow-delete-proxy",
+    "allow-assign-proxy",
+    "allow-test-proxy",
+    "allow-launch-profile",
+    "allow-stop-profile",
+    "allow-running-profiles",
+    "allow-run-health",
+    "allow-guard-policy",
+    "allow-set-doh-provider",
+    "allow-activity-log",
+    "allow-get-settings",
+    "allow-set-settings",
+    "allow-report-activity",
+    "allow-quit-app"
+  ]
+}

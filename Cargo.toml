@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -38,6 +38,7 @@ vanta-proxy = { path = "crates/vanta-proxy" }
 vanta-log = { path = "crates/vanta-log" }
 vanta-launcher = { path = "crates/vanta-launcher" }
 vanta-health = { path = "crates/vanta-health" }
+vanta-core = { path = "crates/vanta-core" }
 
 [profile.release]
 lto = "thin"
