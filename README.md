@@ -16,8 +16,11 @@ against 30 consistency rules before it is allowed to launch.
   `scripts/no-telemetry.sh` enforces the no-telemetry rule in CI.
 - **Personas are Windows 10 / Windows 11 only.** Other operating systems are rejected when a
   device record, a stored profile or a search query names them.
+- **No manual User-Agent.** The UA is always the engine's own reduced Chrome 156 Windows UA
+  (`Mozilla/5.0 (Windows NT 10.0; Win64; x64) … Chrome/156.0.0.0 Safari/537.36`). Profiles
+  differ by UA-CH `platformVersion`, GPU, screen, noise seeds and timezone.
 
-## Features (Master Plan v3)
+## Features (Master Plan v3.1)
 
 | ID  | Feature             | What it does |
 |-----|---------------------|--------------|
@@ -31,8 +34,8 @@ against 30 consistency rules before it is allowed to launch.
 | F08 | Activity Log        | Encrypted, hash-chained, local-only log of launches, blocked leaks, edits and vault events, kept 90 days. |
 | —   | Settings            | Performance switches, disk, vault settings; shows the installed engine version. |
 
-The full plan (rules R1–R13, feature details, screens) is in
-[`docs/Vanta-Master-Plan-v3.pdf`](docs/Vanta-Master-Plan-v3.pdf).
+The full plan (rules R1–R14, feature details, screens, current status) is in
+[`docs/Vanta-Master-Plan-v3.1.pdf`](docs/Vanta-Master-Plan-v3.1.pdf).
 
 ## Clickable prototype
 
@@ -59,7 +62,7 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `scripts/check.sh` | All local quality gates. |
 | `scripts/stage_engine.py` | Checks a packaged engine (`vanta-engine-win64.zip` + `SHA256SUMS`) and stages it for the installer (see [Desktop app](#desktop-app)); tests in `scripts/test_stage_engine.py`. |
 | `scripts/no-telemetry.sh` | Fails on references to analytics/telemetry endpoints or SDKs. |
-| `docs/` | Master Plan v3 (PDF) and the clickable prototype. |
+| `docs/` | Master Plan v3.1 (PDF) and the clickable prototype. |
 
 ## Consistency rules
 
@@ -304,7 +307,7 @@ measured on real Windows (Task Manager, the app's process group), not in CI.
 ## Develop
 
 Requires the stable Rust toolchain (see `rust-toolchain.toml`). The crates build and test on
-Windows directly; on Linux, install `gcc-mingw-w64-x86-64` and the `x86_64-pc-windows-gnu`
+Windows directly; on a non-Windows host, install `gcc-mingw-w64-x86-64` and the `x86_64-pc-windows-gnu`
 target for the Windows cross-check.
 
 ```sh
