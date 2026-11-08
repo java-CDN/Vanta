@@ -42,6 +42,7 @@ describe('tauri api mapping', () => {
       [x => x.assignProxy(ID, null), 'assign_proxy', { profileId: ID, proxyId: null }],
       [x => x.testProxy('p1'), 'test_proxy', { proxyId: 'p1' }],
       [x => x.launchProfile(ID), 'launch_profile', { id: ID }],
+      [x => x.launchProfile(ID, true), 'launch_profile', { id: ID, confirmed: true }],
       [x => x.stopProfile(ID), 'stop_profile', { id: ID }],
       [x => x.runningProfiles(), 'running_profiles', undefined],
       [x => x.runHealth(ID), 'run_health', { id: ID }],

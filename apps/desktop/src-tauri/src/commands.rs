@@ -275,14 +275,22 @@ pub async fn test_proxy(s: State<'_, Shell>, proxy_id: String) -> R<ProxyView> {
 
 // ---- launch & health ---------------------------------------------------------------
 
+/// `confirmed`: the user confirmed one more attempt after `MAX_FAILED_LAUNCHES` failed
+/// launches in a row (the plain call answers `confirm_required` then).
 #[tauri::command]
 pub async fn launch_profile(
     handle: AppHandle,
     s: State<'_, Shell>,
     id: ProfileId,
+    confirmed: Option<bool>,
 ) -> R<LaunchInfo> {
+    let confirmed = confirmed.unwrap_or(false);
     let r = drive(s.app.clone(), move |app| async move {
-        app.launch_profile(id).await
+        if confirmed {
+            app.launch_profile_confirmed(id).await
+        } else {
+            app.launch_profile(id).await
+        }
     })
     .await;
     events::status_now(&handle, id, &r);

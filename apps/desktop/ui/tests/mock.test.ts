@@ -76,4 +76,20 @@ describe('proxy import preview (vanta-proxy grammar)', () => {
     await expect(b.unlock('second master password')).rejects.toMatchObject({ kind: 'crypto' });
     await b.unlock('third master password');
   });
+  it('asks for confirmation after 3 failed launches in a row; success resets', async () => {
+    const b = mockBackend({ speed: 0, unlocked: true });
+    const all = (await b.listProfiles('', 1000, 0)).items;
+    const jp = all.find(p => p.name === 'qa-jp-01')!;
+    for (let i = 0; i < 3; i++) await expect(b.launchProfile(jp.id)).rejects.toMatchObject({ kind: 'blocked' });
+    await expect(b.launchProfile(jp.id)).rejects.toMatchObject({ kind: 'confirm_required', failures: 3, last_error: expect.stringContaining('proxy offline') });
+    await expect(b.launchProfile(jp.id, true)).rejects.toMatchObject({ kind: 'blocked' });
+    await expect(b.launchProfile(jp.id)).rejects.toMatchObject({ kind: 'confirm_required', failures: 4 });
+    // Fix the cause (a working proxy and a health run), confirm once: it runs, and the count is gone.
+    const ok = all.find(p => p.name === 'shop-nl-01')!;
+    await b.assignProxy(jp.id, ok.proxy_id);
+    await b.runHealth(jp.id);
+    await b.launchProfile(jp.id, true);
+    await b.stopProfile(jp.id);
+    await b.launchProfile(jp.id);
+  });
 });

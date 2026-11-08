@@ -33,7 +33,10 @@ pub fn status_now(h: &AppHandle, id: ProfileId, r: &Result<LaunchInfo, CoreError
             | CoreError::BadConfigSignature
             | CoreError::VersionMismatch { .. },
         ) => ProfileStatus::Blocked,
-        Err(_) => ProfileStatus::Stopped,
+        Err(CoreError::EngineExited { .. }) => ProfileStatus::Crashed,
+        // Nothing was attempted (already running, locked, confirmation needed...): the
+        // profile keeps the status it had.
+        Err(_) => return,
     };
     let _ = h.emit(
         STATUS,

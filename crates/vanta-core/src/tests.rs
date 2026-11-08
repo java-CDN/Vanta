@@ -261,6 +261,8 @@ struct MockEngine {
     own_version: EngineVersion,
     /// Simulates a launcher key the engine does not accept.
     replace_pubkey: Option<String>,
+    /// Simulates an engine that crashes right after start with this exit code.
+    crash_on_start: Mutex<Option<i32>>,
     next_pid: AtomicU32,
     members: Arc<Mutex<HashSet<u32>>>,
     spawns: Mutex<Vec<Spawn>>,
@@ -271,6 +273,7 @@ impl MockEngine {
         Self {
             own_version,
             replace_pubkey: None,
+            crash_on_start: Mutex::new(None),
             next_pid: AtomicU32::new(4000),
             members: Arc::new(Mutex::new(HashSet::new())),
             spawns: Mutex::new(Vec::new()),
@@ -374,7 +377,9 @@ impl EngineSpawner for MockEngine {
         }
         let pid = self.next_pid.fetch_add(1, Ordering::SeqCst);
         let exit: ExitSlot = Arc::new(Mutex::new(
-            verify_like_engine_patch_0002(&args, self.own_version).map(Some),
+            verify_like_engine_patch_0002(&args, self.own_version)
+                .or(*self.crash_on_start.lock().unwrap())
+                .map(Some),
         ));
         self.members.lock().unwrap().insert(pid);
         self.spawns.lock().unwrap().push(Spawn {
@@ -1621,4 +1626,122 @@ fn failed_header_write_leaves_the_vault_as_it_was() {
         .unwrap();
     e.app.lock().unwrap();
     e.app.unlock("a brand new passphrase").unwrap();
+}
+
+// ---- failed-launch cap -----------------------------------------------------------------
+
+fn confirm_required(r: CoreResult<LaunchInfo>) -> (u32, String) {
+    match r {
+        Err(CoreError::ConfirmRequired {
+            failures,
+            last_error,
+        }) => (failures, last_error),
+        other => panic!("expected ConfirmRequired, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_blocked_launches_need_a_confirmation_and_success_resets() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    // No health report: the gate blocks (preflight block).
+    for n in 1..=MAX_FAILED_LAUNCHES {
+        let err = e.app.launch_profile(id).await.unwrap_err();
+        assert_eq!(codes(&err), ["health_missing"]);
+        assert_eq!(e.app.failed_launches(id), n);
+    }
+    let blocked_logs = log_kinds(&e, id).len();
+    let (n, last) = confirm_required(e.app.launch_profile(id).await);
+    assert_eq!(n, 3);
+    assert!(last.contains("health"), "{last}");
+    // Refused before anything starts, and not counted or logged as an attempt.
+    assert_eq!(e.app.failed_launches(id), 3);
+    assert_eq!(log_kinds(&e, id).len(), blocked_logs);
+    assert_eq!(e.engine.count(), 0);
+    let json = serde_json::to_value(CoreError::ConfirmRequired {
+        failures: 3,
+        last_error: "x".into(),
+    })
+    .unwrap();
+    assert_eq!(json["kind"], "confirm_required");
+    assert_eq!(json["failures"], 3);
+
+    // A confirmed attempt that fails again counts, and the next plain one asks again.
+    let err = e.app.launch_profile_confirmed(id).await.unwrap_err();
+    assert_eq!(codes(&err), ["health_missing"]);
+    assert_eq!(e.app.failed_launches(id), 4);
+    confirm_required(e.app.launch_profile(id).await);
+
+    // Fixed (fresh health) + confirmed: it launches and the count is gone.
+    fresh_health(&e, id, &proxy, 90);
+    e.app.launch_profile_confirmed(id).await.unwrap();
+    assert_eq!(e.app.failed_launches(id), 0);
+    e.app.stop_profile(id).unwrap();
+    e.app.launch_profile(id).await.unwrap();
+    e.app.stop_profile(id).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exit_87_and_start_up_crashes_count_as_failed_launches() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env_with(MockEngine::new(EngineVersion::new(156, 0, 8078, 82)), None);
+    let (id, proxy) = setup(&e, &up);
+    fresh_health(&e, id, &proxy, 90);
+    for _ in 0..MAX_FAILED_LAUNCHES {
+        let err = e.app.launch_profile(id).await.unwrap_err();
+        assert!(matches!(err, CoreError::VersionMismatch { .. }), "{err:?}");
+    }
+    let (_, last) = confirm_required(e.app.launch_profile(id).await);
+    assert!(last.contains("exit 87"), "{last}");
+    assert_eq!(e.engine.count(), 3, "no engine for the refused attempt");
+
+    // An engine that dies inside its start-up window (crash, not 86/87).
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    fresh_health(&e, id, &proxy, 90);
+    *e.engine.crash_on_start.lock().unwrap() = Some(-1073741819);
+    for _ in 0..MAX_FAILED_LAUNCHES {
+        let err = e.app.launch_profile(id).await.unwrap_err();
+        assert!(matches!(err, CoreError::EngineExited { .. }), "{err:?}");
+        assert_eq!(status(&e, id), ProfileStatus::Crashed);
+    }
+    confirm_required(e.app.launch_profile(id).await);
+    *e.engine.crash_on_start.lock().unwrap() = None;
+    e.app.launch_profile_confirmed(id).await.unwrap();
+    assert_eq!(e.app.failed_launches(id), 0);
+    e.app.stop_profile(id).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn other_errors_do_not_count_and_delete_forgets() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    fresh_health(&e, id, &proxy, 90);
+    e.app.launch_profile(id).await.unwrap();
+    for _ in 0..4 {
+        assert!(matches!(
+            e.app.launch_profile(id).await,
+            Err(CoreError::AlreadyRunning)
+        ));
+    }
+    e.app.stop_profile(id).unwrap();
+    e.app.lock().unwrap();
+    for _ in 0..4 {
+        assert!(matches!(
+            e.app.launch_profile(id).await,
+            Err(CoreError::Locked)
+        ));
+    }
+    e.app.unlock(MASTER).unwrap();
+    assert_eq!(e.app.failed_launches(id), 0);
+
+    let (other, _) = setup(&e, &up);
+    for _ in 0..MAX_FAILED_LAUNCHES {
+        e.app.launch_profile(other).await.unwrap_err();
+    }
+    assert_eq!(e.app.failed_launches(other), 3);
+    e.app.delete_profiles(&[other]).unwrap();
+    assert_eq!(e.app.failed_launches(other), 0);
 }

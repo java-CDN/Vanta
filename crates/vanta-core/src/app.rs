@@ -35,6 +35,10 @@ use vanta_vault::{KdfParams, Sealed, Vault, VaultHeader, WrappedKey};
 pub const SECRET_SIGNING_KEY: &str = "launcher/ed25519";
 /// Vault secret holding the activity log's head hash.
 pub const SECRET_LOG_HEAD: &str = "log/head";
+/// Consecutive failed launches of a profile (blocked by the gate, exit 86/87, or an engine
+/// that ended in its start-up window) after which the next attempt needs the user's
+/// explicit confirmation. A successful launch resets the count.
+pub const MAX_FAILED_LAUNCHES: u32 = 3;
 const VAULT_FILE: &str = "vault.json";
 const DB_FILE: &str = "vanta.db";
 const LOG_FILE: &str = "activity.log";
@@ -124,6 +128,8 @@ struct Inner {
     procs: Mutex<ProcessTable>,
     running: Mutex<HashMap<ProfileId, Running>>,
     ip_echo_url: Mutex<EchoUrl>,
+    /// Consecutive failed launches per profile and the last failure (this session).
+    failed_launches: Mutex<HashMap<ProfileId, (u32, String)>>,
 }
 
 /// The Vanta backend: profiles, proxies, vault, launches, health runs and the activity
@@ -187,6 +193,7 @@ impl VantaApp {
         Ok(Self {
             inner: Arc::new(Inner {
                 ip_echo_url,
+                failed_launches: Mutex::new(HashMap::new()),
                 cfg,
                 deps,
                 log: Mutex::new(LogState {
@@ -566,6 +573,7 @@ impl VantaApp {
         let n = lock(&self.inner.store).delete(ids)?;
         for id in ids {
             let _ = std::fs::remove_dir_all(self.user_data_dir(*id));
+            lock(&self.inner.failed_launches).remove(id);
         }
         Ok(n)
     }
@@ -1162,10 +1170,59 @@ impl VantaApp {
     /// persona to the engine (R5), start its relay (Job-Object clients only, kill switch
     /// armed), run the gate (proxy, guard, rules, health), sign the launch config and
     /// start the engine suspended inside the profile's Job Object.
+    ///
+    /// After [`MAX_FAILED_LAUNCHES`] failed launches in a row this refuses with
+    /// [`CoreError::ConfirmRequired`] and starts nothing; the UI asks the user and then
+    /// calls [`VantaApp::launch_profile_confirmed`].
     pub async fn launch_profile(&self, id: ProfileId) -> CoreResult<LaunchInfo> {
+        self.launch_counted(id, false).await
+    }
+
+    /// One more launch attempt the user explicitly confirmed after repeated failures.
+    /// Counts like any other attempt: another failure needs another confirmation.
+    pub async fn launch_profile_confirmed(&self, id: ProfileId) -> CoreResult<LaunchInfo> {
+        self.launch_counted(id, true).await
+    }
+
+    /// Consecutive failed launches of `id` in this session.
+    pub fn failed_launches(&self, id: ProfileId) -> u32 {
+        lock(&self.inner.failed_launches)
+            .get(&id)
+            .map_or(0, |(n, _)| *n)
+    }
+
+    async fn launch_counted(&self, id: ProfileId, confirmed: bool) -> CoreResult<LaunchInfo> {
         if lock(&self.inner.running).contains_key(&id) {
             return Err(CoreError::AlreadyRunning);
         }
+        self.require_unlocked()?;
+        if !confirmed {
+            if let Some((n, last)) = lock(&self.inner.failed_launches).get(&id) {
+                if *n >= MAX_FAILED_LAUNCHES {
+                    return Err(CoreError::ConfirmRequired {
+                        failures: *n,
+                        last_error: last.clone(),
+                    });
+                }
+            }
+        }
+        let r = self.launch_once(id).await;
+        let mut failed = lock(&self.inner.failed_launches);
+        match &r {
+            Ok(_) => {
+                failed.remove(&id);
+            }
+            Err(e) if e.is_failed_launch() => {
+                let entry = failed.entry(id).or_insert((0, String::new()));
+                entry.0 = entry.0.saturating_add(1);
+                entry.1 = e.to_string();
+            }
+            Err(_) => {}
+        }
+        r
+    }
+
+    async fn launch_once(&self, id: ProfileId) -> CoreResult<LaunchInfo> {
         let prepared = match self.prepare(id) {
             Err(CoreError::Blocked { reasons }) => return Err(self.block(id, reasons)),
             r => r?,

@@ -2,7 +2,7 @@
 // vanta-core where the UI can tell (errors, gates, statuses, log kinds), with the
 // prototype's demo data. Never shipped in the Tauri build.
 
-import type { Backend, Unsubscribe } from './backend';
+import { MAX_FAILED_LAUNCHES, type Backend, type Unsubscribe } from './backend';
 import type * as T from './types';
 import { COUNTRIES, DEVICES, ENGINE, FONTS_WIN10, FONTS_WIN11, GPUS, PROFILE_SEED, PROXY_SEED, hashStr } from './demo';
 import { CHECKS } from '../lib/catalog';
@@ -42,6 +42,8 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   let unlocked = !!opts.unlocked && initialized;
   let password = 'demo';
   let recovery = '';
+  /** Consecutive failed launches per profile (like vanta-core). */
+  const failed = new Map<string, { n: number; last: string }>();
   let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null };
   let lastActive = Date.now();
   const listeners = { status: new Set<(c: T.StatusChange[]) => void>(), log: new Set<(e: T.LogEntry[]) => void>(), locked: new Set<(e: T.LockedEvent) => void>(), close: new Set<(e: T.CloseRequest) => void>() };
@@ -262,7 +264,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     },
     async deleteProfiles(ids) {
       let n = 0;
-      for (const id of ids) { const i = profiles.findIndex(p => p.meta.id === id); if (i >= 0) { profiles.splice(i, 1); n++; } }
+      for (const id of ids) { const i = profiles.findIndex(p => p.meta.id === id); if (i >= 0) { profiles.splice(i, 1); failed.delete(id); n++; } }
       return n;
     },
     async fingerprint(id) { need(); await wait(80); return profView(prof(id)); },
@@ -309,9 +311,11 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       else { const base = x.latency ?? 60; x.view.state = { state: 'online', checked_ms: t, latency_ms: x.kind === 'slow' ? 380 + (t % 70) : Math.max(12, Math.round(base * (0.85 + (t % 30) / 100))) }; }
       return clone(x.view);
     },
-    async launchProfile(id) {
+    async launchProfile(id, confirmed = false) {
       need(); const p = prof(id);
       if (p.meta.status === 'running') throw { kind: 'already_running' };
+      const f = failed.get(id);
+      if (!confirmed && f && f.n >= MAX_FAILED_LAUNCHES) throw { kind: 'confirm_required', failures: f.n, last_error: f.last };
       const reasons: { code: string; message: string }[] = [];
       const x = p.meta.proxy_id ? proxies.find(y => y.view.id === p.meta.proxy_id) : undefined;
       if (!x) reasons.push({ code: 'no_proxy', message: 'launch blocked: the profile has no proxy (Vanta never connects directly)' });
@@ -322,10 +326,11 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       else if (!p.health && x && x.view.state.state !== 'offline') reasons.push({ code: 'health_missing', message: 'launch blocked: no health check for this engine and proxy yet; run one first' });
       if (reasons.length) {
         p.meta.status = 'blocked'; pushLog('launch_blocked', id, reasons.map(r => r.code).join(', ')); emitStatus([{ profile_id: id, status: 'blocked', exit_code: null }]);
+        failed.set(id, { n: (f?.n ?? 0) + 1, last: 'launch blocked: ' + reasons.map(r => r.message.replace(/^launch blocked: /, '')).join('; ') });
         throw { kind: 'blocked', reasons };
       }
       await wait(900);
-      p.meta.status = 'running'; p.meta.last_opened_ms = Date.now();
+      p.meta.status = 'running'; p.meta.last_opened_ms = Date.now(); failed.delete(id);
       const port = 49152 + (hashStr(id + Date.now()) % 16000);
       pushLog('profile_launch', id, `engine ${ENGINE} pid ${3000 + (port % 5000)}, relay 127.0.0.1:${port}, proxy ${x!.view.display}`);
       emitStatus([{ profile_id: id, status: 'running', exit_code: null }]);

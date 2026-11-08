@@ -226,7 +226,9 @@ export type CoreError =
   | { kind: 'engine_exited'; code: number | null }
   | { kind: 'unsupported'; message: string }
   | { kind: 'storage'; message: string }
-  | { kind: 'network'; message: string };
+  | { kind: 'network'; message: string }
+  /** The last `failures` launches failed in a row: ask the user, then launch with `confirmed`. */
+  | { kind: 'confirm_required'; failures: number; last_error: string };
 
 export interface LockedEvent { reason: 'idle' | 'user' | 'shortcut' }
 export interface CloseRequest { running: number }

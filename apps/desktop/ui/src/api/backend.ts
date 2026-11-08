@@ -31,7 +31,9 @@ export interface Backend {
   assignProxy(profileId: string, proxyId: string | null): Promise<T.AssignResult>;
   testProxy(proxyId: string): Promise<T.ProxyView>;
   // launch & health
-  launchProfile(id: string): Promise<T.LaunchInfo>;
+  /** `confirmed`: the user confirmed one more attempt after repeated failed launches
+   *  (the plain call rejects with `confirm_required` then; see MAX_FAILED_LAUNCHES). */
+  launchProfile(id: string, confirmed?: boolean): Promise<T.LaunchInfo>;
   stopProfile(id: string): Promise<void>;
   runningProfiles(): Promise<string[]>;
   runHealth(id: string): Promise<T.HealthResult>;
@@ -52,6 +54,10 @@ export interface Backend {
   onLocked(cb: (e: T.LockedEvent) => void): Promise<Unsubscribe>;
   onCloseRequested(cb: (e: T.CloseRequest) => void): Promise<Unsubscribe>;
 }
+
+/** Failed launches in a row (gate block, exit 86/87, crash in the first 3 s) after which
+ *  the next attempt needs the user's confirmation (vanta_core::MAX_FAILED_LAUNCHES). */
+export const MAX_FAILED_LAUNCHES = 3;
 
 /** Errors from the backend are `CoreError` values; anything else is wrapped. */
 export function asCoreError(e: unknown): T.CoreError {
@@ -78,5 +84,6 @@ export function errorText(e: unknown): string {
     case 'unsupported': return c.message;
     case 'storage': return `Storage error: ${c.message}`;
     case 'network': return `Network error: ${c.message}`;
+    case 'confirm_required': return `The last ${c.failures} launches failed in a row (last: ${c.last_error}).`;
   }
 }

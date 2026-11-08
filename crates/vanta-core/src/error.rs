@@ -81,6 +81,26 @@ pub enum CoreError {
     Storage { message: String },
     #[error("network error: {message}")]
     Network { message: String },
+    /// The profile's last [`crate::MAX_FAILED_LAUNCHES`] launches failed in a row; the user
+    /// has to confirm before another attempt ([`crate::VantaApp::launch_profile_confirmed`]).
+    #[error(
+        "the last {failures} launches failed in a row (last: {last_error}); confirm to try again"
+    )]
+    ConfirmRequired { failures: u32, last_error: String },
+}
+
+impl CoreError {
+    /// A launch attempt that failed on its own terms: the gate refused (preflight block),
+    /// the engine refused its config (exit 86/87) or ended in its start-up window.
+    pub fn is_failed_launch(&self) -> bool {
+        matches!(
+            self,
+            CoreError::Blocked { .. }
+                | CoreError::BadConfigSignature
+                | CoreError::VersionMismatch { .. }
+                | CoreError::EngineExited { .. }
+        )
+    }
 }
 
 impl From<VantaError> for CoreError {

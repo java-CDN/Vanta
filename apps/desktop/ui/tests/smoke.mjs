@@ -88,6 +88,13 @@ await check('launch → launching → running', async () => {
 });
 await check('stop', async () => { await rowOf('shop-nl-01').locator('[data-a=stopP]').click(); return until(async () => (await rowOf('shop-nl-01').innerText()).includes('Stopped'), 3000); });
 await check('offline proxy blocks launch', async () => { await rowOf('qa-jp-01').locator('[data-a=launchP]').click(); return until(async () => (await toasts()).includes('offline')); });
+await check('3 failed launches in a row → confirm before the next', async () => {
+  for (let i = 0; i < 2; i++) { await sleep(150); await rowOf('qa-jp-01').locator('[data-a=launchP]').click(); await sleep(250); }
+  await rowOf('qa-jp-01').locator('[data-a=launchP]').click();
+  const asked = await until(async () => (await page.locator('.modal').count()) > 0 && (await page.locator('.modal').innerText()).includes('3 launches failed in a row'));
+  await page.click('.modal .btn:not(#cfOk)'); await sleep(150);
+  return asked && (await page.locator('.modal').count()) === 0;
+});
 await check('failing rule (C018 geo) blocks launch', async () => { await rowOf('shop-de-03').locator('[data-a=launchP]').click(); return until(async () => (await toasts()).includes('C018')); });
 await check('drawer opens with details', async () => { await rows().first().locator('td').nth(1).click(); await sleep(400); const d = page.locator('#drawer'); return (await d.getAttribute('class')).includes('open') && (await d.innerText()).includes('Fingerprint') && (await d.innerText()).includes('Notes'); });
 await check('Esc closes drawer', async () => { await page.keyboard.press('Escape'); await sleep(150); return !(await page.locator('#drawer').getAttribute('class')).includes('open'); });

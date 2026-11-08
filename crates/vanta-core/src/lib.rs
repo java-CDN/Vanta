@@ -16,7 +16,11 @@
 //!    the format engine patch 0002 verifies) and write it for `--vanta-config`;
 //! 8. start the engine `CREATE_SUSPENDED`, assign it to the job, resume it
 //!    (`vanta_launcher::spawn_in_job`); exits 86/87 in the start-up window become
-//!    [`CoreError::BadConfigSignature`] / [`CoreError::VersionMismatch`].
+//!    [`CoreError::BadConfigSignature`] / [`CoreError::VersionMismatch`];
+//! 9. after [`MAX_FAILED_LAUNCHES`] failed launches in a row (gate block, exit 86/87, end in
+//!    the start-up window) the next one needs the user's confirmation
+//!    ([`CoreError::ConfirmRequired`], [`VantaApp::launch_profile_confirmed`]); a successful
+//!    launch resets the count.
 //!
 //! **Status**: [`VantaApp::poll_status`] (or [`VantaApp::spawn_status_watcher`]) reaps
 //! engines and writes `running/stopped/crashed/blocked` to the store. Dropping the app
@@ -41,7 +45,8 @@ mod dto;
 mod error;
 
 pub use app::{
-    launch_config_path, AppConfig, EngineInfo, VantaApp, SECRET_LOG_HEAD, SECRET_SIGNING_KEY,
+    launch_config_path, AppConfig, EngineInfo, VantaApp, MAX_FAILED_LAUNCHES, SECRET_LOG_HEAD,
+    SECRET_SIGNING_KEY,
 };
 pub use deps::{
     Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, RelayClients,

@@ -147,7 +147,24 @@ export function AppProvider({ b, initialInfo, initialSettings, children }: { b: 
     setBusy(x => ({ ...x, [id]: 'launch' }));
     setProfiles(ps => ps.map(x => (x.id === id ? { ...x, status: 'starting' } : x)));
     try {
-      const li = await b.launchProfile(id);
+      let li: T.LaunchInfo;
+      try { li = await b.launchProfile(id); }
+      catch (e) {
+        // Repeated failures: nothing was started; one more attempt needs an explicit yes.
+        const c = asCoreError(e);
+        if (c.kind !== 'confirm_required') throw e;
+        setProfiles(ps => ps.map(x => (x.id === id ? { ...x, status: p.status } : x)));
+        setBusy(x => { const n = { ...x }; delete n[id]; return n; });
+        const ok = await confirm({
+          title: 'Launch failed several times',
+          text: <><b>{p.name}</b>: the last {c.failures} launches failed in a row.<br /><span className="dim">Last: {c.last_error}</span><br />Fix the cause first (proxy, health check, engine). Try once more anyway?</>,
+          ok: 'Try again', danger: true,
+        });
+        if (!ok) return false;
+        setBusy(x => ({ ...x, [id]: 'launch' }));
+        setProfiles(ps => ps.map(x => (x.id === id ? { ...x, status: 'starting' } : x)));
+        li = await b.launchProfile(id, true);
+      }
       setRelays(r => ({ ...r, [id]: li.relay_port }));
       setProfiles(ps => ps.map(x => (x.id === id ? { ...x, status: 'running', last_opened_ms: Date.now() } : x)));
       if (!opts.quiet) toast(<><b>{p.name}</b> is running · engine {li.engine_version} · relay 127.0.0.1:{li.relay_port}</>, 'ok', 'play');
