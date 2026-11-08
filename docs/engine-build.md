@@ -19,10 +19,16 @@ ungoogled-chromium-windows `reusable-build.yml`:
 2. Every stage runs `ci_ninja.py` (ninja `-k 0`, under vcvars64) until
    `ninja_deadline_minutes` after the stage started, then stops ninja cleanly.
 3. If ninja is not finished, `build/src` (sources + `out/Default`) is zipped
-   with NTFS timestamps and uploaded as the artifact **`build-state`**
-   (retention 1 day, overwritten by each stage). The next stage downloads it,
-   unpacks it into the same work dir and continues.
-4. A stage with failed edges archives its state and then stops the chain.
+   with NTFS timestamps (4 GB volumes `build-state.zip.001`, …, plus
+   `work.txt`) and uploaded as the artifact **`build-state`** (retention 1 day,
+   overwritten by each stage). The volumes are written to `STATE_DIR`, on the
+   other drive than the work dir when it has ≥ 60 GB free, so the tree and its
+   zip never share a disk. The next stage downloads it, checks it was made in
+   the same work dir (paths in `build.ninja` are absolute), unpacks it and
+   continues.
+4. A stage with failed edges (including a failed canary, or a `ci_ninja.py`
+   crash after ninja ran) still archives and uploads its state, then stops the
+   chain, so it can be resumed with `resume_run_id`.
 5. `ci_ninja.py` keeps `out/Default/vanta_progress.json` (edges done / total)
    across stages; each stage exposes `edges_done`, `edges_total`, `finished`.
 

@@ -67,10 +67,18 @@ STAGE = r'''  stage-{k}:
           "STAGE_DEADLINE=$($t0 + 60 * [int]'${{{{ inputs.ninja_deadline_minutes }}}}')" >> $env:GITHUB_ENV
           Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free
           {work_rule}
+          # build-state volumes (archive out / download in) go to the other drive when it has
+          # room, so the tree and its zip never share one disk (C: had ~80 GB free in run 1).
+          $wd = $work.Substring(0, 1)
+          $alt = Get-PSDrive -PSProvider FileSystem -Name C, D -ErrorAction SilentlyContinue |
+            Where-Object {{ $_.Name -ne $wd }} | Sort-Object Free -Descending | Select-Object -First 1
+          if ($alt -and $alt.Free -ge 60GB) {{ $state = "$($alt.Name):\vanta-state" }} else {{ $state = "$work\state" }}
           "WORK=$work" >> $env:GITHUB_ENV
           "work=$work" >> $env:GITHUB_OUTPUT
+          "STATE_DIR=$state" >> $env:GITHUB_ENV
           New-Item -ItemType Directory -Force -Path $work | Out-Null
-          Write-Host "work dir: $work; image: $env:ImageOS $env:ImageVersion"
+          New-Item -ItemType Directory -Force -Path $state | Out-Null
+          Write-Host "work dir: $work; state dir: $state; image: $env:ImageOS $env:ImageVersion"
           & "${{env:ProgramFiles(x86)}}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property displayName
           # Same as most Chromium-on-Actions builds: Defender scanning every .obj halves throughput.
           Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
@@ -110,36 +118,54 @@ STAGE = r'''  stage-{k}:
         id: ninja
         run: python engine/scripts/ci_ninja.py --src "$env:WORK\build\src" --deadline $env:STAGE_DEADLINE --jobs ${{{{ inputs.jobs }}}} --stage {k}{canary}
 
+      # Runs also when the ninja step itself failed (canary failure exits 3, or the script
+      # broke), as long as ninja ran and did not finish: the tree is kept for resume_run_id.
       - name: Archive build state for the next stage
-        if: steps.ninja.outputs.finished == 'false'
+        id: archive
+        if: ${{{{ !cancelled() && steps.ninja.outcome != 'skipped' && steps.ninja.outputs.finished != 'true' }}}}
         run: |
           $ErrorActionPreference = 'Stop'
-          Set-Content -NoNewline "$env:WORK\build\src\.vanta_state\work.txt" $env:WORK
-          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free
+          $src = Join-Path $env:WORK 'build\src'
+          $out = Join-Path $env:STATE_DIR 'out'
+          if (-not (Test-Path -LiteralPath (Join-Path $src 'out\Default\build.ninja'))) {{ throw "no build tree at $src" }}
+          # Nothing may hold files open while 7z reads the tree.
+          Get-Process -Name ninja, clang-cl, lld-link, mspdbsrv, vctip, rustc -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
           Start-Sleep 5
+          # Named parameters only: -NoNewline is a dynamic parameter and shifts positional binding
+          # (run 42458699729 wrote to -Path $env:WORK).
+          New-Item -ItemType Directory -Force -Path (Join-Path $src '.vanta_state') | Out-Null
+          Set-Content -LiteralPath (Join-Path $src '.vanta_state\work.txt') -Value $env:WORK -NoNewline -Encoding ascii
+          if (Test-Path -LiteralPath $out) {{ Remove-Item -LiteralPath $out -Recurse -Force }}
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Set-Content -LiteralPath (Join-Path $out 'work.txt') -Value $env:WORK -NoNewline -Encoding ascii
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free
           $sw = [Diagnostics.Stopwatch]::StartNew()
-          New-Item -ItemType Directory -Force -Path "$env:WORK\state-out" | Out-Null
-          # As ucw: zip of build/src with NTFS timestamps (ninja needs them), level 3; 4 GB volumes.
-          7z a -tzip "$env:WORK\state-out\build-state.zip" "$env:WORK\build\src" -mx=3 -mtc=on -v4g -bso0 -bsp0
-          if ($LASTEXITCODE -ne 0) {{ throw "7z failed ($LASTEXITCODE)" }}
-          Get-ChildItem "$env:WORK\state-out" | Format-Table Name, Length
+          # As ucw: zip of build/src with NTFS timestamps (ninja needs them), level 3; 4 GB volumes
+          # (always named build-state.zip.001, .002, ...).
+          & 7z a -tzip (Join-Path $out 'build-state.zip') $src -mx=3 -mtm=on -mtc=on -v4g -bso0 -bsp0
+          if ($LASTEXITCODE -eq 1) {{ Write-Host "::warning::7z reported non-fatal warnings (exit 1)" }}
+          elseif ($LASTEXITCODE -ne 0) {{ throw "7z failed ($LASTEXITCODE)" }}
+          if (-not (Test-Path -LiteralPath (Join-Path $out 'build-state.zip.001'))) {{ throw "7z wrote no build-state.zip.001" }}
+          Get-ChildItem -LiteralPath $out | Format-Table Name, Length
           Write-Host "archived in $([int]$sw.Elapsed.TotalMinutes) min"
+          $global:LASTEXITCODE = 0
 
       - name: Upload build state
-        if: steps.ninja.outputs.finished == 'false'
+        if: ${{{{ !cancelled() && steps.archive.outcome == 'success' }}}}
         uses: actions/upload-artifact@v4
         with:
           name: build-state
-          path: ${{{{ env.WORK }}}}\state-out\
+          path: ${{{{ env.STATE_DIR }}}}\out\
           retention-days: 1
           compression-level: 0
           overwrite: true
           if-no-files-found: error
 
       - name: Stop the chain on compile errors
-        if: steps.ninja.outputs.failures != '' && steps.ninja.outputs.failures != '0'
+        if: ${{{{ !cancelled() && steps.ninja.outputs.failures != '' && steps.ninja.outputs.failures != '0' }}}}
         run: |
-          Write-Host "::error::${{{{ steps.ninja.outputs.failures }}}} ninja edge(s) failed in stage {k}; build state was archived. Fix the patch, then dispatch with resume_run_id=${{{{ github.run_id }}}}."
+          Write-Host "::error::${{{{ steps.ninja.outputs.failures }}}} ninja edge(s) failed in stage {k}; build state archived: ${{{{ steps.archive.outcome }}}}. Fix the patch, then dispatch with resume_run_id=${{{{ github.run_id }}}}."
           exit 1
 
       - name: Package vanta-engine-win64.zip
@@ -155,15 +181,16 @@ STAGE = r'''  stage-{k}:
           path: ${{{{ env.WORK }}}}\dist\
           retention-days: 7
           compression-level: 0
+          overwrite: true
           if-no-files-found: error
 
       - name: S5-lite smoke (no config / 86 / 87 / valid signed config)
         if: steps.ninja.outputs.finished == 'true'
         run: |
           $ErrorActionPreference = 'Stop'
-          Expand-Archive "$env:WORK\dist\vanta-engine-win64.zip" "$env:WORK\smoke-bin" -Force
+          Expand-Archive -LiteralPath "$env:WORK\dist\vanta-engine-win64.zip" -DestinationPath "$env:WORK\smoke-bin" -Force
           python engine/scripts/smoke_s5lite.py --exe "$env:WORK\smoke-bin\vanta-engine-win64\vanta-chromium.exe" --work "$env:WORK\smoke"
-          if ($LASTEXITCODE -ne 0) {{ throw "smoke failed" }}
+          if ($LASTEXITCODE -ne 0) {{ throw "smoke failed ($LASTEXITCODE)" }}
 
       - name: Upload smoke logs
         if: always() && steps.ninja.outputs.finished == 'true'
@@ -172,6 +199,7 @@ STAGE = r'''  stage-{k}:
           name: s5-lite-logs
           path: ${{{{ env.WORK }}}}\smoke\*.log
           retention-days: 7
+          overwrite: true
           if-no-files-found: ignore
 
       - name: Delete the intermediate build-state artifact
@@ -179,8 +207,13 @@ STAGE = r'''  stage-{k}:
         env:
           GH_TOKEN: ${{{{ github.token }}}}
         run: |
-          $ids = gh api "repos/${{{{ github.repository }}}}/actions/runs/${{{{ github.run_id }}}}/artifacts" --jq '.artifacts[] | select(.name == "build-state") | .id'
-          foreach ($id in $ids) {{ gh api -X DELETE "repos/${{{{ github.repository }}}}/actions/artifacts/$id" }}
+          $ErrorActionPreference = 'Stop'
+          $ids = @(gh api --paginate "repos/${{{{ github.repository }}}}/actions/runs/${{{{ github.run_id }}}}/artifacts" --jq '.artifacts[] | select(.name == "build-state") | .id')
+          if ($LASTEXITCODE -ne 0) {{ throw "listing artifacts failed ($LASTEXITCODE)" }}
+          foreach ($id in $ids) {{
+            gh api -X DELETE "repos/${{{{ github.repository }}}}/actions/artifacts/$id"
+            if ($LASTEXITCODE -ne 0) {{ throw "deleting artifact $id failed ($LASTEXITCODE)" }}
+          }}
 
 '''
 
@@ -195,21 +228,28 @@ RESTORE = r'''
         {cond}uses: actions/download-artifact@v4
         with:
           name: build-state
-          path: ${{{{ env.WORK }}}}\state
+          path: ${{{{ env.STATE_DIR }}}}\in
 {extra}
       - name: Unpack build state, re-sync Vanta patches, gn gen
         {cond}run: |
           $ErrorActionPreference = 'Stop'
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          7z x "$env:WORK\state\build-state.zip.001" "-o$env:WORK\build" -y -bso0 -bsp0
-          if ($LASTEXITCODE -ne 0) {{ throw "7z failed ($LASTEXITCODE)" }}
-          Remove-Item -Recurse -Force "$env:WORK\state"
-          Write-Host "restored in $([int]$sw.Elapsed.TotalMinutes) min"
-          $was = Get-Content "$env:WORK\build\src\.vanta_state\work.txt"
+          $in = Join-Path $env:STATE_DIR 'in'
+          Get-ChildItem -LiteralPath $in | Format-Table Name, Length
+          # Paths are absolute in build.ninja: the tree must come back to the same work dir.
+          $was = (Get-Content -LiteralPath (Join-Path $in 'work.txt') -Raw).Trim()
           if ($was -ne $env:WORK) {{ throw "build state was made in $was, this runner uses $env:WORK" }}
+          $first = Join-Path $in 'build-state.zip.001'
+          if (-not (Test-Path -LiteralPath $first)) {{ throw "missing $first" }}
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          & 7z x $first "-o$(Join-Path $env:WORK 'build')" -y -bso0 -bsp0
+          if ($LASTEXITCODE -ne 0) {{ throw "7z failed ($LASTEXITCODE)" }}
+          Remove-Item -LiteralPath $in -Recurse -Force
+          Write-Host "restored in $([int]$sw.Elapsed.TotalMinutes) min"
+          $inner = (Get-Content -LiteralPath (Join-Path $env:WORK 'build\src\.vanta_state\work.txt') -Raw).Trim()
+          if ($inner -ne $env:WORK) {{ throw "restored tree was made in $inner, this runner uses $env:WORK" }}
           Get-PSDrive -PSProvider FileSystem | Format-Table Name, Used, Free
           python engine/scripts/prepare.py --ucw "$env:WORK\ucw" --build "$env:WORK\build" --steps resync,args,gngen,bindgen --no-gn-check
-          if ($LASTEXITCODE -ne 0) {{ throw "prepare (resync) failed" }}
+          if ($LASTEXITCODE -ne 0) {{ throw "prepare (resync) failed ($LASTEXITCODE)" }}
 '''
 
 FOOTER = r'''  complete:
