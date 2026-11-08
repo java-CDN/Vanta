@@ -32,8 +32,12 @@ domain substitution.
 | `flags.vanta.gn` | GN args added after ungoogled `flags.gn` + `flags.windows.gn`. A flag set here wins. |
 | `patches/series`, `patches/vanta/*.patch` | Vanta patches (unified diffs, `a/` `b/` paths, applied with `patch -p1 --ignore-whitespace --forward`, the same options as ungoogled's `utils/patches.py`). |
 | `scripts/fetch_upstream.py` | Clones ungoogled-chromium-windows + its submodule at the lock and checks the SHAs. |
-| `scripts/prepare.py` | Every step up to and including `gn gen` + `gn check`: `source, windeps, prune, patch, domsub, rust, args, gngen`. It never runs ninja. |
+| `scripts/prepare.py` | Every step up to and including `gn gen` + `gn check`: `source, windeps, prune, patch, domsub, rust, args, gngen`, plus `resync` (swap a built tree to the current Vanta series) and `bindgen` for S3. It never runs ninja. |
 | `scripts/offline_check.py` | Quick check for developers: pulls only the files the Vanta patches touch from chromium.googlesource.com, applies the upstream hunks for them, then the Vanta series. |
+| `scripts/ci_ninja.py` | S3: runs ninja until a stage deadline (`-k 0`, vcvars64), `--canary` compiles the Vanta-touched objects first, writes `finished`/`failures`/edge counts. |
+| `scripts/package_engine.py` | S3: `vanta-engine-win64.zip` + SHA-256 from `FILES.cfg` (no installer, no `.pdb`). |
+| `scripts/smoke_s5lite.py` | S3: S5-lite smoke of the packaged exe (version resource, no config, 86, 87, valid signed config). |
+| `scripts/gen_s3_workflow.py` | Generates `.github/workflows/engine-s3.yml`. |
 | `scripts/build.ps1` | Full local build on your own Windows PC (R8). |
 
 ### Pinned upstream
@@ -134,12 +138,11 @@ There is no spoofing, no CDP and no telemetry.
 |---|---|---|---|
 | **S1** | `.github/workflows/engine-s1.yml` | ubuntu-latest | Pin check, offline check, then the real tarball: download, verify, unpack (archive deleted), prune, apply all three patch layers, domain substitution. No compile. Runs on pushes touching `engine/**` or `engine-*.yml`. |
 | **S2** | `.github/workflows/engine-s2.yml` | windows-latest | After S1 succeeds on main (`workflow_run`) or by hand: SDK 10.0.28000.0, Windows downloads, the full `prepare.py` flow, `gn` bootstrap, `gn gen --fail-on-unused-args` over the whole graph, then `gn check` on `//chrome/browser/vanta/*` and `//chrome:chrome_initial` (fatal) and on `//chrome:chrome_dll` and `//chrome/browser:browser` (reported only). The full-graph check cannot pass, because the -lite tarball has no test sources (`v8/test/unittests`, …) and some upstream test targets have include errors once ungoogled's patches are applied. Builds on `D:` because `C:` runs out of space. No ninja. |
-| S3 | *not yet* | windows | Compile only the targets Vanta touches (`//chrome/browser/vanta`, `chrome_main_delegate`, …). |
-| S4 | *not yet* | windows | Full build in chained jobs that resume from artifacts (the ungoogled-chromium-windows `reusable-build.yml` model, 16 stages). |
-| S5 | *not yet* | windows | Smoke test: exe starts; bad signature gives 86, wrong version gives 87; fingerprint = config; proxy-only traffic; kill switch. |
+| **S3** | `.github/workflows/engine-s3.yml` | windows-2022 | By hand (`workflow_dispatch`): chained full build of `chrome` in up to 10 stages that resume from the `build-state` artifact, with a canary compile of the Vanta-touched files first; then `vanta-engine-win64.zip` and the S5-lite smoke (86/87/valid config) on the same runner. See `docs/engine-build.md`. |
+| S5 | *not yet* | windows | Full smoke test (S3 already runs S5-lite): exe starts; bad signature gives 86, wrong version gives 87; fingerprint = config; proxy-only traffic; kill switch. |
 | S6 | *not yet* | windows | SHA-256, minisign, optional Authenticode, GitHub Release. |
 
-Rule: S4 does not start unless S1–S3 pass. No release unless S5 passes.
+Rule: S3 is only dispatched once S1 and S2 pass. No release unless S5 passes.
 
 ## Local build (your PC)
 

@@ -12,3 +12,4 @@ apps/desktop/ui/dist/
 apps/desktop/ui/dist-mock/
 apps/desktop/smoke-shots/
 apps/desktop/src-tauri/gen/
+__pycache__/

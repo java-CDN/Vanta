@@ -12,20 +12,35 @@ with --tarball. Steps are selectable so CI stages and a local PC share one scrip
 
   S1 (ubuntu):   --steps source,prune,patch,domsub
   S2 (windows):  --steps source,windeps,prune,patch,domsub,rust,args,gngen
+  S3 (windows):  the S2 steps + bindgen in stage 1; later stages and resumed
+                 runs: --steps resync,args,gngen --no-gn-check
   local build:   build.ps1 runs all of the above, then ninja
+
+`patch` keeps a copy of every file the Vanta series touches as it was before
+the Vanta patches (after the upstream patches) in <src>/.vanta_state/. `resync`
+uses it to swap an already built tree over to the current engine/patches
+without a fresh source tree: it restores those files, applies the current
+Vanta series, redoes domain substitution on them, and puts the old timestamps
+back on every file whose content did not change, so ninja rebuilds only what
+the patch change affects.
 
 This script never runs ninja.
 """
 import argparse
+import hashlib
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parent.parent
-ALL_STEPS = ('source', 'windeps', 'prune', 'patch', 'domsub', 'rust', 'args', 'gngen')
+ALL_STEPS = ('source', 'windeps', 'prune', 'patch', 'domsub', 'resync', 'rust', 'args', 'gngen',
+             'bindgen')
+STATE_DIR = '.vanta_state'  # inside src, so CI stage archives carry it
 
 # `gn check` scope. The whole graph cannot pass: the -lite tarball has no test
 # sources (v8/test/unittests, ...) and some upstream test targets have include
@@ -58,6 +73,70 @@ def read_flags(path: Path):
         k, v = line.split('=', 1)
         out.append((k.strip(), v.strip()))
     return out
+
+
+def vanta_series():
+    d = ENGINE / 'patches'
+    out = []
+    for line in (d / 'series').read_text(encoding='utf-8').splitlines():
+        line = line.split('#', 1)[0].strip()
+        if line:
+            out.append((d / line).resolve())
+    return out
+
+
+def vanta_series_hash():
+    h = hashlib.sha256()
+    for p in vanta_series():
+        h.update(p.name.encode() + b'\0' + p.read_bytes() + b'\0')
+    return h.hexdigest()
+
+
+def patch_targets(patch: Path):
+    """Files a unified diff touches -> True if it creates them (--- /dev/null)."""
+    out = {}
+    old = None
+    for line in patch.read_text(encoding='utf-8').splitlines():
+        if line.startswith('--- '):
+            old = line[4:].split('\t')[0].strip()
+        elif line.startswith('+++ ') and old is not None:
+            new = line[4:].split('\t')[0].strip()
+            rel = new[2:] if new.startswith('b/') else new
+            if rel == '/dev/null':
+                rel = old[2:] if old.startswith('a/') else old
+            out.setdefault(rel, old == '/dev/null')
+            old = None
+    return out
+
+
+def vanta_targets():
+    out = {}
+    for p in vanta_series():
+        for rel, created in patch_targets(p).items():
+            out.setdefault(rel, created)
+    return out
+
+
+def read_lock():
+    out = {}
+    for line in (ENGINE / 'upstream.lock').read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if line and not line.startswith('#'):
+            k, v = line.split('=', 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _file_sha256(path: Path):
+    h = hashlib.sha256()
+    with path.open('rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _sha(path: Path):
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
 def merge_flags(*groups):
@@ -96,7 +175,7 @@ class Ctx:
         }
 
     # ---------------------------------------------------------------- helpers
-    def _fetch(self, ini: Path, unpack_to: Path, components=None):
+    def _fetch(self, ini: Path, unpack_to: Path, components=None, pinned_sha256=None):
         info = self.downloads.DownloadInfo([ini])
         self.cache.mkdir(parents=True, exist_ok=True)
         self.downloads.retrieve_downloads(info, self.cache, components, self.progress, False)
@@ -105,6 +184,12 @@ class Ctx:
         except self.downloads.HashMismatchError as exc:
             raise SystemExit(f'checksum mismatch: {exc}')
         log(f'hashes ok for {ini}')
+        for name, want in (pinned_sha256 or {}).items():
+            props = dict(info.properties_iter())[name]
+            got = _file_sha256(self.cache / props.download_filename)
+            if got != want:
+                raise SystemExit(f'{name}: SHA-256 {got} != upstream.lock {want}')
+            log(f'{name}: SHA-256 matches upstream.lock ({got})')
         for name, props in info.properties_iter():
             if components and name not in components:
                 continue
@@ -169,7 +254,9 @@ class Ctx:
             log('source tree already unpacked; skipping')
             return
         self.src.mkdir(parents=True, exist_ok=True)
-        self._fetch(self.uc / 'downloads.ini', self.src)
+        lock = read_lock()
+        self._fetch(self.uc / 'downloads.ini', self.src,
+                    pinned_sha256={'chromium': lock['chromium_tarball_sha256']})
         self.verify_version()
 
     def step_windeps(self):
@@ -196,15 +283,94 @@ class Ctx:
     def step_patch(self):
         bin_ = self._patch_bin()
         for name, d in (('ungoogled-chromium', self.uc / 'patches'),
-                        ('ungoogled-chromium-windows', self.ucw / 'patches'),
-                        ('vanta', ENGINE / 'patches')):
+                        ('ungoogled-chromium-windows', self.ucw / 'patches')):
             series = list(self.patches.generate_patches_from_series(d, resolve=True))
             log(f'applying {len(series)} {name} patches')
             self.patches.apply_patches(series, self.src, patch_bin_path=bin_)
+        self._snapshot(vanta_targets(), fresh=True)
+        self._apply_vanta(bin_)
+        log('all patches applied')
+
+    # ------------------------------------------------- vanta pre-patch state
+    def _state(self):
+        return self.src / STATE_DIR
+
+    def _load_manifest(self):
+        f = self._state() / 'manifest.json'
+        return json.loads(f.read_text(encoding='utf-8')) if f.exists() else None
+
+    def _snapshot(self, targets, fresh=False):
+        """Keep the pre-Vanta content of each target not yet in the manifest."""
+        state = self._state()
+        if fresh and state.exists():
+            shutil.rmtree(state)
+        man = self._load_manifest() or {'files': {}, 'series_sha256': None}
+        for rel in sorted(targets):
+            if rel in man['files']:
+                continue
+            src = self.src / rel
+            exists = src.is_file()
+            man['files'][rel] = {'existed': exists}
+            if exists:
+                dst = state / 'pre' / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'manifest.json').write_text(json.dumps(man, indent=1), encoding='utf-8')
+        return man
+
+    def _apply_vanta(self, bin_):
+        series = vanta_series()
+        log(f'applying {len(series)} vanta patches')
+        self.patches.apply_patches(series, self.src, patch_bin_path=bin_)
         for f in ('chrome/browser/vanta/launch_config.cc', 'chrome/browser/vanta/BUILD.gn'):
             if not (self.src / f).exists():
                 raise SystemExit(f'vanta file missing after patching: {f}')
-        log('all patches applied')
+        man = self._load_manifest()
+        man['series_sha256'] = vanta_series_hash()
+        (self._state() / 'manifest.json').write_text(json.dumps(man, indent=1), encoding='utf-8')
+
+    def step_resync(self):
+        """Swap a built tree over to the current Vanta series (see module doc)."""
+        man = self._load_manifest()
+        if man is None:
+            raise SystemExit(f'{self._state()} missing: tree was not prepared by this script')
+        want = vanta_series_hash()
+        if man.get('series_sha256') == want:
+            log('resync: vanta series unchanged; nothing to do')
+            return
+        # Files the new series touches that the old one did not are still
+        # pristine (post domain substitution, which is idempotent): snapshot them.
+        man = self._snapshot(vanta_targets())
+        before = {}
+        for rel in man['files']:
+            p = self.src / rel
+            if p.is_file():
+                before[rel] = (_sha(p), p.stat().st_atime_ns, p.stat().st_mtime_ns)
+        for rel, info in man['files'].items():  # back to the pre-Vanta tree
+            p = self.src / rel
+            if info['existed']:
+                shutil.copyfile(self._state() / 'pre' / rel, p)
+            elif p.exists():
+                p.unlink()
+        self._apply_vanta(self._patch_bin())
+        domsub_list = set((self.uc / 'domain_substitution.list').read_text().splitlines())
+        regex = self.domsub.DomainRegexList(self.uc / 'domain_regex.list').regex_pairs
+        changed = []
+        for rel in man['files']:
+            p = self.src / rel
+            if not p.is_file():
+                if rel in before:
+                    changed.append(rel + ' (removed)')
+                continue
+            if rel in domsub_list:
+                self.domsub._substitute_path(p, regex)  # pylint: disable=protected-access
+            old = before.get(rel)
+            if old and old[0] == _sha(p):
+                os.utime(p, ns=(old[1], old[2]))  # unchanged: keep ninja's view
+            else:
+                changed.append(rel)
+        log('resync: changed files: ' + (', '.join(changed) or 'none'))
 
     def step_domsub(self):
         self.domsub.apply_substitution(self.uc / 'domain_regex.list',
@@ -261,7 +427,11 @@ class Ctx:
         out = self.src / 'out' / 'Default'
         out.mkdir(parents=True, exist_ok=True)
         text = self.args_gn()
-        (out / 'args.gn').write_text(text, encoding='utf-8')
+        args = out / 'args.gn'
+        if args.exists() and args.read_text(encoding='utf-8') == text:
+            log('out/Default/args.gn unchanged')  # keep its timestamp: no gn re-run
+            return
+        args.write_text(text, encoding='utf-8')
         log('out/Default/args.gn:\n' + text)
 
     def step_gngen(self):
@@ -282,6 +452,14 @@ class Ctx:
                     log('gn check (advisory) ok: ' + t)
                 except SystemExit as exc:
                     log(f'WARNING gn check (advisory, upstream target {t}) failed: {exc}')
+
+    def step_bindgen(self):
+        # Same as build.py: bindgen is built from source before ninja.
+        if (self.src / 'third_party' / 'rust-toolchain' / 'bin' / 'bindgen.exe').exists():
+            log('bindgen already built')
+            return
+        self._run_vc(sys.executable, 'tools\\rust\\build_bindgen.py', '--skip-test')
+        log('bindgen built')
 
 
 def main():
