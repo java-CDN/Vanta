@@ -7,7 +7,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use std::collections::HashSet;
 use std::ffi::OsString;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -17,11 +17,11 @@ use tokio::net::{TcpListener, TcpStream};
 use vanta_launcher::{EngineProcess, KillOnCloseJob};
 use vanta_log::LogKind;
 use vanta_proxy::doh::BoxFuture;
-use vanta_proxy::net::NetResult;
+use vanta_proxy::net::{NetError, NetResult};
 use vanta_proxy::DohProvider;
 use vanta_proxy::{
-    AllowedClients, GuardPolicy, PidLookup, ProxyEndpoint, ProxyScheme, ProxyState, Resolver,
-    UnknownPid,
+    AllowedClients, EchoUrl, GuardPolicy, PidLookup, ProxyEndpoint, ProxyScheme, ProxyState,
+    Resolver, UnknownPid,
 };
 use vanta_store::HealthSummary;
 use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus};
@@ -155,6 +155,70 @@ impl NetFactory for MockNet {
         _: SocketAddr,
     ) -> Arc<dyn Resolver> {
         Arc::new(MockDoh)
+    }
+}
+
+// ---- mock IP echo ------------------------------------------------------------------------
+
+/// Exit IP "through the proxy" and the PC's own IPs, as the test sets them; records what
+/// it was asked.
+struct FakeEcho {
+    /// Answers for successive exit-IP requests; the last one repeats.
+    exit: Mutex<Vec<NetResult<IpAddr>>>,
+    host: Mutex<Vec<IpAddr>>,
+    /// (echo URL, proxy port, proxy address) of every exit request.
+    exit_calls: Mutex<Vec<(String, u16, SocketAddr)>>,
+    host_calls: Mutex<Vec<String>>,
+}
+
+const EXIT_IP: &str = "198.51.100.20";
+const HOST_PUBLIC_IP: &str = "203.0.113.99";
+const HOST_LAN_IP: &str = "192.168.77.31";
+
+fn ip(s: &str) -> IpAddr {
+    s.parse().unwrap()
+}
+
+impl FakeEcho {
+    fn new() -> Self {
+        Self {
+            exit: Mutex::new(vec![Ok(ip(EXIT_IP))]),
+            host: Mutex::new(vec![ip(HOST_PUBLIC_IP), ip(HOST_LAN_IP)]),
+            exit_calls: Mutex::new(Vec::new()),
+            host_calls: Mutex::new(Vec::new()),
+        }
+    }
+    fn set_exit(&self, answers: Vec<NetResult<IpAddr>>) {
+        *self.exit.lock().unwrap() = answers;
+    }
+}
+
+impl IpEcho for FakeEcho {
+    fn exit_ip<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        _timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<IpAddr>> {
+        let n = {
+            let mut calls = self.exit_calls.lock().unwrap();
+            calls.push((url.to_string(), proxy.port, proxy_addr));
+            calls.len()
+        };
+        let answers = self.exit.lock().unwrap();
+        let r = answers[(n - 1).min(answers.len() - 1)].clone();
+        Box::pin(async move { r })
+    }
+    fn host_ips<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        _resolver: Arc<dyn Resolver>,
+        _timeout: Duration,
+    ) -> BoxFuture<'a, Vec<IpAddr>> {
+        self.host_calls.lock().unwrap().push(url.to_string());
+        let r = self.host.lock().unwrap().clone();
+        Box::pin(async move { r })
     }
 }
 
@@ -341,6 +405,7 @@ struct Env {
     app: VantaApp,
     engine: Arc<MockEngine>,
     client_pid: Arc<AtomicU32>,
+    echo: Arc<FakeEcho>,
 }
 
 impl Drop for Env {
@@ -365,11 +430,12 @@ fn config(dir: &Path) -> AppConfig {
     cfg
 }
 
-fn deps(engine: Arc<MockEngine>, client_pid: Arc<AtomicU32>) -> Deps {
+fn deps(engine: Arc<MockEngine>, client_pid: Arc<AtomicU32>, echo: Arc<FakeEcho>) -> Deps {
     let members = engine.members.clone();
     Deps {
         spawner: engine,
         net: Arc::new(MockNet),
+        ip_echo: echo,
         // Same shape as production (process tree, unknown PIDs refused), with the job
         // membership answered by the mock engine and the PID by the test.
         clients: RelayClients::Custom(Arc::new(move |_job: Arc<KillOnCloseJob>| {
@@ -389,12 +455,18 @@ fn env_with(engine: MockEngine, dir: Option<PathBuf>) -> Env {
     });
     let engine = Arc::new(engine);
     let client_pid = Arc::new(AtomicU32::new(0));
-    let app = VantaApp::open(config(&dir), deps(engine.clone(), client_pid.clone())).unwrap();
+    let echo = Arc::new(FakeEcho::new());
+    let app = VantaApp::open(
+        config(&dir),
+        deps(engine.clone(), client_pid.clone(), echo.clone()),
+    )
+    .unwrap();
     Env {
         dir,
         app,
         engine,
         client_pid,
+        echo,
     }
 }
 
@@ -1112,7 +1184,8 @@ async fn real_spawner_is_refused_off_windows() {
     let up = upstream(USER, PASSWORD).await;
     let dir = std::env::temp_dir().join(format!("vanta-core-test-{}", uuid::Uuid::new_v4()));
     let client_pid = Arc::new(AtomicU32::new(0));
-    let mut d = deps(Arc::new(MockEngine::new(ENGINE)), client_pid);
+    let echo = Arc::new(FakeEcho::new());
+    let mut d = deps(Arc::new(MockEngine::new(ENGINE)), client_pid, echo.clone());
     d.spawner = Arc::new(OsSpawner);
     let app = VantaApp::open(config(&dir), d).unwrap();
     let e = Env {
@@ -1120,6 +1193,7 @@ async fn real_spawner_is_refused_off_windows() {
         app,
         engine: Arc::new(MockEngine::new(ENGINE)),
         client_pid: Arc::new(AtomicU32::new(0)),
+        echo,
     };
     let (id, proxy) = setup(&e, &up);
     fresh_health(&e, id, &proxy, 90);
@@ -1291,4 +1365,124 @@ fn change_password_checks_the_current_one() {
     let reopened = VantaApp::open(config(&e.dir), Deps::production()).unwrap();
     assert!(matches!(reopened.unlock(MASTER), Err(CoreError::Crypto)));
     reopened.unlock("a brand new passphrase").unwrap();
+}
+
+// ---- health inputs: exit IP and host IPs ------------------------------------------------
+
+fn problem_ids(r: &HealthResult) -> Vec<String> {
+    r.problems.iter().map(|p| p.id.clone()).collect()
+}
+
+fn all_log_details(e: &Env) -> String {
+    e.app
+        .activity_log(&LogQuery {
+            limit: 1000,
+            ..Default::default()
+        })
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|x| x.detail)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn health_run_measures_exit_ip_through_the_proxy() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, _) = setup(&e, &up);
+    let r = e.app.run_health(id).await.unwrap();
+    // Two samples through the profile's proxy (exit IP + sticky session), to the default
+    // echo endpoint; one direct host measurement.
+    let calls = e.echo.exit_calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    for (url, port, addr) in &calls {
+        assert_eq!(url, vanta_proxy::DEFAULT_IP_ECHO_URL);
+        assert_eq!(*port, up.addr.port(), "asked through the profile's proxy");
+        assert_eq!(addr.port(), up.addr.port());
+    }
+    assert_eq!(e.echo.host_calls.lock().unwrap().len(), 1);
+    let ids = problem_ids(&r);
+    // Real values: the exit IP is known and not the PC's own, the session is sticky.
+    assert!(!ids.contains(&"H01".to_string()), "{ids:?}");
+    assert!(!ids.contains(&"H07".to_string()), "{ids:?}");
+    // The PC's own addresses are compared only: not in the result, the log or the files.
+    let shown = serde_json::to_string(&r).unwrap();
+    let logged = all_log_details(&e);
+    let files = db_bytes(&e.dir);
+    for own in [HOST_PUBLIC_IP, HOST_LAN_IP] {
+        assert!(!shown.contains(own), "host IP in the health result");
+        assert!(!logged.contains(own), "host IP in the activity log");
+        assert!(!contains(&files, own), "host IP in the data folder");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exit_ip_equal_to_the_host_ip_fails_h01() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, _) = setup(&e, &up);
+    e.echo.set_exit(vec![Ok(ip(HOST_PUBLIC_IP))]);
+    let r = e.app.run_health(id).await.unwrap();
+    assert!(r.summary.failing.contains(&"H01".to_string()));
+    let h01 = r.problems.iter().find(|p| p.id == "H01").unwrap();
+    assert!(h01.message.contains("own address"), "{}", h01.message);
+    assert!(!h01.message.contains(HOST_PUBLIC_IP));
+    assert!(r.summary.score <= vanta_health::CRITICAL_CAP);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unreachable_echo_leaves_the_exit_unknown() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, _) = setup(&e, &up);
+    e.echo.set_exit(vec![Err(NetError::Timeout)]);
+    let r = e.app.run_health(id).await.unwrap();
+    assert_eq!(
+        e.echo.exit_calls.lock().unwrap().len(),
+        1,
+        "no retry after a failure"
+    );
+    assert!(r.summary.failing.contains(&"H01".to_string()));
+    // One sample is not a sticky-session test.
+    assert!(problem_ids(&r).contains(&"H07".to_string()));
+
+    // A rotating exit: H07 warns.
+    e.echo.exit_calls.lock().unwrap().clear();
+    e.echo
+        .set_exit(vec![Ok(ip(EXIT_IP)), Ok(ip("198.51.100.21"))]);
+    let r = e.app.run_health(id).await.unwrap();
+    assert!(!r.summary.failing.contains(&"H01".to_string()));
+    let h07 = r.problems.iter().find(|p| p.id == "H07").unwrap();
+    assert_eq!(h07.outcome, "warn");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ip_echo_url_is_validated_and_used() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, _) = setup(&e, &up);
+    assert_eq!(e.app.ip_echo_url(), vanta_proxy::DEFAULT_IP_ECHO_URL);
+    for bad in ["http://icanhazip.com/", "https://192.168.1.1/", "not a url"] {
+        assert!(
+            matches!(e.app.set_ip_echo_url(bad), Err(CoreError::Invalid { .. })),
+            "{bad}"
+        );
+    }
+    assert_eq!(e.app.ip_echo_url(), vanta_proxy::DEFAULT_IP_ECHO_URL);
+    e.app.set_ip_echo_url("https://icanhazip.com").unwrap();
+    assert_eq!(e.app.ip_echo_url(), "https://icanhazip.com/");
+    e.app.run_health(id).await.unwrap();
+    assert!(e
+        .echo
+        .exit_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(u, _, _)| u == "https://icanhazip.com/"));
+    assert_eq!(
+        e.echo.host_calls.lock().unwrap().as_slice(),
+        ["https://icanhazip.com/"]
+    );
 }

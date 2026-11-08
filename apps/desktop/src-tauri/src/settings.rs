@@ -17,6 +17,9 @@ pub struct Settings {
     pub confirm_delete: bool,
     /// Engine executable override; `None` = the default install path. Read at start-up.
     pub engine_path: Option<String>,
+    /// Plain-text IP echo endpoint for health runs; `None` = the built-in default
+    /// (`vanta_proxy::DEFAULT_IP_ECHO_URL`). Applies at once.
+    pub ip_echo_url: Option<String>,
 }
 
 impl Default for Settings {
@@ -27,6 +30,7 @@ impl Default for Settings {
             max_launch: 12,
             confirm_delete: true,
             engine_path: None,
+            ip_echo_url: None,
         }
     }
 }
@@ -53,7 +57,18 @@ impl Settings {
                 return Err(invalid("engine path is empty or too long"));
             }
         }
+        if let Some(u) = &self.ip_echo_url {
+            vanta_proxy::EchoUrl::parse(u)?;
+        }
         Ok(())
+    }
+
+    /// The IP echo endpoint in use.
+    pub fn echo_url(&self) -> vanta_proxy::EchoUrl {
+        self.ip_echo_url
+            .as_deref()
+            .and_then(|u| vanta_proxy::EchoUrl::parse(u).ok())
+            .unwrap_or_default()
     }
 
     /// Missing or unreadable file: defaults (a broken file never blocks start-up).
@@ -75,5 +90,26 @@ impl Settings {
             .map_err(|e| CoreError::Storage {
                 message: format!("settings: {e}"),
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ip_echo_url_is_optional_and_checked() {
+        let mut s = Settings::default();
+        assert!(s.validate().is_ok());
+        assert_eq!(s.echo_url().to_string(), vanta_proxy::DEFAULT_IP_ECHO_URL);
+        s.ip_echo_url = Some("https://icanhazip.com/".into());
+        assert!(s.validate().is_ok());
+        assert_eq!(s.echo_url().to_string(), "https://icanhazip.com/");
+        s.ip_echo_url = Some("http://icanhazip.com/".into());
+        assert!(s.validate().is_err());
+        // Old settings files without the key still load.
+        let old: Settings = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
+        assert_eq!(old.ip_echo_url, None);
+        assert_eq!(old.theme, "light");
     }
 }

@@ -6,6 +6,7 @@ import type { IconName } from '../lib/icons';
 import { AUTOLOCK_OPTIONS } from '../lib/format';
 import { errorText } from '../api/backend';
 import { StrengthBar } from './Lock';
+import { DEFAULT_IP_ECHO_URL, echoUrlProblem } from '../lib/echo';
 
 type Sec = 'general' | 'security' | 'engine' | 'data' | 'appearance' | 'privacy' | 'about';
 const SECS: [Sec, string, IconName][] = [['general', 'General', 'gear'], ['security', 'Security & vault', 'lock'], ['engine', 'Engine', 'cpu'], ['data', 'Data', 'hdd'], ['appearance', 'Appearance', 'sun'], ['privacy', 'Privacy', 'eye'], ['about', 'About', 'info']];
@@ -40,6 +41,8 @@ export function SettingsScreen() {
   const sec: Sec = (SECS.some(s => s[0] === a.routeArg) ? a.routeArg : 'general') as Sec;
   const st = a.settings;
   const [enginePath, setEnginePath] = useState(st.engine_path ?? '');
+  const [echoUrl, setEchoUrl] = useState(st.ip_echo_url ?? '');
+  const echoErr = echoUrlProblem(echoUrl);
   const [logTotal, setLogTotal] = useState<number | null>(null);
   useEffect(() => { a.b.activityLog({ limit: 1 }).then(r => setLogTotal(r.total)).catch(() => {}); }, [a.b]);
   const set = async (patch: Partial<typeof st>, msg?: ReactNode) => {
@@ -99,14 +102,21 @@ export function SettingsScreen() {
         <div style={{ height: 90, display: 'flex', background: k === 'dark' ? '#12141b' : '#f4f5f8' }}><div style={{ width: '30%', background: k === 'dark' ? '#171922' : '#eceef3' }} />
           <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}><div style={{ height: 8, width: '60%', borderRadius: 4, background: k === 'dark' ? '#3a3d4b' : '#cfd2dc' }} /><div style={{ height: 30, borderRadius: 6, background: k === 'dark' ? '#20222c' : '#fff', border: `1px solid ${k === 'dark' ? '#2d303c' : '#e1e3ea'}` }} /><div style={{ height: 8, width: '30%', borderRadius: 4, background: '#6366f1' }} /></div></div>
         <div style={{ padding: '6px 10px', fontSize: 12 }}>{k === 'dark' ? 'Dark (default)' : 'Light'}</div></div>))}</div></div>;
-  if (sec === 'privacy') body = <div className="card"><h3><Icon n="eye" s={15} />Privacy</h3>
+  if (sec === 'privacy') body = <><div className="card"><h3><Icon n="eye" s={15} />Privacy</h3>
     <div className="chk">Telemetry<span className="r pill ok">none, ever</span></div>
     <div className="chk">Usage analytics<span className="r pill ok">none</span></div>
     <div className="chk">Cloud sync / accounts<span className="r pill ok">not built</span></div>
     <div className="chk">Update checks<span className="r pill ok">none · installer only</span></div>
     <div className="chk">Crash reports<span className="r pill">none</span></div>
     <div className="chk">Activity log<span className="r pill">encrypted · this PC only · 90 days</span></div>
-    <div className="note" style={{ marginTop: 10 }}><Icon n="shield" s={13} /><span>Vanta makes no network requests of its own. Only profiles you launch go online, and only through their proxy.</span></div></div>;
+    <div className="note" style={{ marginTop: 10 }}><Icon n="shield" s={13} /><span>Vanta sends no data about you anywhere. Profiles you launch go online only through their proxy. Vanta itself only checks your proxies, resolves names over DNS-over-HTTPS, and asks the IP echo below during a health check.</span></div></div>
+    <div className="card"><h3><Icon n="globe" s={15} />Health check IP echo</h3>
+      <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>A health run asks a plain-text IP echo service which address a request comes from: once through the profile's proxy (the exit IP, checks H01, H07, H17) and once directly (your own public IP). Your own IP is only compared with what the proxy and the page show; it is never stored, logged or sent anywhere else. The service sees the two requests, as any website would.</div>
+      <div className="field" style={{ marginTop: 12 }}><label htmlFor="setEcho">IP echo URL (https, answers with the IP only; empty = {DEFAULT_IP_ECHO_URL})</label>
+        <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setEcho" style={{ flex: 1 }} value={echoUrl} placeholder={DEFAULT_IP_ECHO_URL} onChange={e => setEchoUrl(e.target.value)} spellCheck={false} />
+          <button className="btn" data-a="saveEcho" disabled={!!echoErr || (st.ip_echo_url ?? '') === echoUrl.trim()} onClick={() => set({ ip_echo_url: echoUrl.trim() || null }, 'IP echo URL saved')}>Save</button></div>
+        <span className={echoErr ? 'err' : 'dim'} id="echoErr" style={{ fontSize: 11 }}>{echoErr ?? 'Takes effect with the next health run.'}</span></div></div>
+  </>;
   if (sec === 'about') body = <div className="card"><h3><Icon n="info" s={15} />About Vanta</h3>
     <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 12 }}><div className="brand" style={{ padding: 0 }}><div className="lg" style={{ width: 44, height: 44, borderRadius: 12 }}><Icon n="shield" s={22} /></div></div><div><b style={{ fontSize: 16 }}>Vanta</b><div className="muted">Private multi-profile browser for Windows 10 and 11</div></div></div>
     <div className="kv" style={{ gridTemplateColumns: '170px 1fr' }}>

@@ -358,8 +358,13 @@ pub fn set_settings(s: State<'_, Shell>, settings: Settings) -> R<Settings> {
         .engine_path
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty());
+    settings.ip_echo_url = settings
+        .ip_echo_url
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty());
     settings.validate()?;
     settings.save(&s.settings_path)?;
+    s.app.set_ip_echo_url(&settings.echo_url().to_string())?;
     {
         let mut al = held(&s.autolock);
         al.set_idle_minutes(settings.autolock_minutes);

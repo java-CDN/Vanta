@@ -2,13 +2,18 @@
 //! an in-process engine and resolver. Production values: [`Deps::production`].
 
 use std::ffi::OsString;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 use vanta_launcher::{relay_clients, spawn_in_job, EngineProcess, KillOnCloseJob};
-use vanta_proxy::{AllowedClients, DohResolver, DohRoute, GuardPolicy, ProxyEndpoint, Resolver};
+use vanta_proxy::doh::BoxFuture;
+use vanta_proxy::echo::{exit_ip_via_proxy, host_ip_direct, primary_local_ip};
+use vanta_proxy::net::NetResult;
+use vanta_proxy::{
+    AllowedClients, DohResolver, DohRoute, EchoUrl, GuardPolicy, ProxyEndpoint, Resolver,
+};
 use vanta_types::Result;
 
 /// Starts the engine. Production: [`OsSpawner`] (suspended, in the job, then resumed).
@@ -94,6 +99,65 @@ impl NetFactory for DohNet {
     }
 }
 
+/// IP measurements for a health run (F03). Production: [`HttpsIpEcho`].
+pub trait IpEcho: Send + Sync {
+    /// The profile's exit IP: the echo endpoint asked through the upstream proxy
+    /// (resolved to `proxy_addr`).
+    fn exit_ip<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<IpAddr>>;
+    /// The PC's own addresses, for comparison only: its public IP from a direct request to
+    /// the echo endpoint (host name resolved with `resolver`) and its local address on the
+    /// default route. Empty when nothing could be measured.
+    fn host_ips<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        resolver: Arc<dyn Resolver>,
+        timeout: Duration,
+    ) -> BoxFuture<'a, Vec<IpAddr>>;
+}
+
+/// The real IP echo over HTTPS (`vanta_proxy::echo`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct HttpsIpEcho;
+
+impl IpEcho for HttpsIpEcho {
+    fn exit_ip<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<IpAddr>> {
+        Box::pin(exit_ip_via_proxy(url, proxy, proxy_addr, timeout))
+    }
+
+    fn host_ips<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        resolver: Arc<dyn Resolver>,
+        timeout: Duration,
+    ) -> BoxFuture<'a, Vec<IpAddr>> {
+        Box::pin(async move {
+            let mut ips = Vec::new();
+            let public = host_ip_direct(url, &*resolver, timeout).await.ok();
+            ips.extend(public);
+            // Route lookup only (no packet): towards the echo answer, else a public anchor.
+            let toward = public.unwrap_or(IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1)));
+            if let Some(local) = primary_local_ip(toward) {
+                if !ips.contains(&local) {
+                    ips.push(local);
+                }
+            }
+            ips
+        })
+    }
+}
+
 /// Who may use a profile's relay.
 #[derive(Clone)]
 pub enum RelayClients {
@@ -127,6 +191,7 @@ pub struct Deps {
     pub spawner: Arc<dyn EngineSpawner>,
     pub net: Arc<dyn NetFactory>,
     pub clients: RelayClients,
+    pub ip_echo: Arc<dyn IpEcho>,
 }
 
 impl Deps {
@@ -135,6 +200,7 @@ impl Deps {
             spawner: Arc::new(OsSpawner),
             net: Arc::new(DohNet::default()),
             clients: RelayClients::ProcessTree,
+            ip_echo: Arc::new(HttpsIpEcho),
         }
     }
 }

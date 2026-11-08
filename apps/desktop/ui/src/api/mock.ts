@@ -8,6 +8,7 @@ import { COUNTRIES, DEVICES, ENGINE, FONTS_WIN10, FONTS_WIN11, GPUS, PROFILE_SEE
 import { CHECKS } from '../lib/catalog';
 import { matches, parse, SearchError } from '../lib/search';
 import { parseList } from '../lib/proxyparse';
+import { echoUrlProblem } from '../lib/echo';
 
 export interface MockOptions {
   /** Start without a vault (first-run screen). */
@@ -41,7 +42,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   let unlocked = !!opts.unlocked && initialized;
   let password = 'demo';
   let recovery = '';
-  let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null };
+  let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null };
   let lastActive = Date.now();
   const listeners = { status: new Set<(c: T.StatusChange[]) => void>(), log: new Set<(e: T.LogEntry[]) => void>(), locked: new Set<(e: T.LockedEvent) => void>(), close: new Set<(e: T.CloseRequest) => void>() };
   const sub = <F>(set: Set<F>, cb: F): Promise<Unsubscribe> => { set.add(cb); return Promise.resolve(() => { set.delete(cb); }); };
@@ -364,6 +365,8 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     async getSettings() { return clone(settings); },
     async setSettings(s) {
       if (![0, 1, 5, 10, 15, 30, 60].includes(s.autolock_minutes)) throw { kind: 'invalid', message: 'auto-lock must be one of 0, 1, 5, 10, 15, 30, 60 minutes' };
+      const echoProblem = s.ip_echo_url == null ? null : echoUrlProblem(s.ip_echo_url);
+      if (echoProblem) throw { kind: 'invalid', message: `IP echo URL: ${echoProblem}` };
       settings = clone(s); lastActive = Date.now(); return clone(settings);
     },
     async reportActivity() { lastActive = Date.now(); },

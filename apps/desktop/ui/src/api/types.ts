@@ -207,6 +207,8 @@ export interface Settings {
   confirm_delete: boolean;
   /** Override of the engine executable; null = default install path. Applies after restart. */
   engine_path: string | null;
+  /** Plain-text IP echo endpoint for health runs; null = the default (api.ipify.org). */
+  ip_echo_url: string | null;
 }
 
 export type CoreError =

@@ -27,11 +27,12 @@
 //! each batch the log head is sealed into the vault; each unlock verifies it
 //! ([`LogIntegrity`]), which catches entries cut from the end.
 //!
-//! **Health** ([`VantaApp::run_health`]): health lab, the same launch flow with the lab's
-//! switches, collect, score, store the summary, log it.
+//! **Health** ([`VantaApp::run_health`]): measure the exit IP through the profile's proxy
+//! and the PC's own addresses (for comparison only; [`IpEcho`]), health lab, the same
+//! launch flow with the lab's switches, collect, score, store the summary, log it.
 //!
-//! Test seams: [`EngineSpawner`] (the engine process), [`NetFactory`] (DoH) and, in this
-//! crate's own tests only, a custom relay client policy. Release builds can only use
+//! Test seams: [`EngineSpawner`] (the engine process), [`NetFactory`] (DoH), [`IpEcho`]
+//! (exit and host IP) and, in this crate's own tests only, a custom relay client policy. Release builds can only use
 //! [`RelayClients::ProcessTree`].
 
 mod app;
@@ -42,7 +43,9 @@ mod error;
 pub use app::{
     launch_config_path, AppConfig, EngineInfo, VantaApp, SECRET_LOG_HEAD, SECRET_SIGNING_KEY,
 };
-pub use deps::{Deps, DohNet, EngineSpawner, NetFactory, OsSpawner, RelayClients};
+pub use deps::{
+    Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, RelayClients,
+};
 pub use dto::*;
 pub use error::{BlockReason, CoreError, CoreResult};
 

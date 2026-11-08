@@ -34,8 +34,9 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
         exe: engine_path.clone(),
         version: paths::engine_version(&engine_path),
     };
-    let app = VantaApp::open(AppConfig::new(&data_dir, engine), Deps::production())
-        .map_err(|e| e.to_string())?;
+    let mut cfg = AppConfig::new(&data_dir, engine);
+    cfg.ip_echo_url = settings.echo_url();
+    let app = VantaApp::open(cfg, Deps::production()).map_err(|e| e.to_string())?;
     Ok(Shell {
         app,
         autolock: Mutex::new(AutoLock::new(settings.autolock_minutes, now_ms())),

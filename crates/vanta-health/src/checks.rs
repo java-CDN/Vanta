@@ -141,7 +141,9 @@ fn same_strs(a: &[String], b: &[String]) -> bool {
 
 fn net_exit(i: &HealthInput) -> R {
     match i.exit.ip {
-        None => fail("No exit IP was measured through the relay."),
+        None => fail(
+            "No exit IP could be measured through the proxy. Check that the proxy works and that the IP echo endpoint (Settings › Privacy) answers.",
+        ),
         Some(ip) if i.guard.host_ips.contains(&ip) => {
             fail("The exit IP is this PC's own address: traffic is not going through the proxy.")
         }

@@ -49,7 +49,7 @@ describe('tauri api mapping', () => {
       [x => x.setDohProvider(ID, 'quad9'), 'set_doh_provider', { id: ID, doh: 'quad9' }],
       [x => x.activityLog({ kinds: ['health_run'], limit: 12 }), 'activity_log', { query: { kinds: ['health_run'], limit: 12 } }],
       [x => x.getSettings(), 'get_settings', undefined],
-      [x => x.setSettings({ autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null }), 'set_settings', { settings: { autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null } }],
+      [x => x.setSettings({ autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null }), 'set_settings', { settings: { autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null } }],
       [x => x.reportActivity(), 'report_activity', undefined],
       [x => x.quit(), 'quit_app', undefined],
     ];

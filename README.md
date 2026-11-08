@@ -10,7 +10,9 @@ against 30 consistency rules before it is allowed to launch.
 - **Version lock:** the Chrome version a persona reports (User-Agent, UA Client Hints) is bound
   to the installed engine at every launch. It is never stored per profile and cannot drift
   (rule C030, engine exit code 87).
-- **Local-only:** no telemetry, no account, no cloud sync, no teams, no API/MCP server.
+- **Local-only:** no telemetry, no account, no cloud sync, no teams, no API/MCP server. The
+  app's own network use is proxy checks, DNS-over-HTTPS and, during a health run, one IP echo
+  endpoint (see [Health Check](#health-check)).
   `scripts/no-telemetry.sh` enforces the no-telemetry rule in CI.
 - **Personas are Windows 10 / Windows 11 only.** Other operating systems are rejected when a
   device record, a stored profile or a search query names them.
@@ -46,7 +48,7 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `crates/vanta-vault` | Vault Lock (F06), the activity-log key (F08) and sealed vault secrets (proxy passwords, launcher signing key, log head) bound to their reference. |
 | `crates/vanta-store` | SQLite + FTS5 profile database and search language (F01); Proxy Hub table that keeps only a vault reference for each password (schema 2, legacy inline proxy lines migrated at unlock); sealed-secret blobs; last health summary per profile. |
 | `crates/vanta-fingerprint` | Real Windows device records, UA / UA-CH from the engine version, rules C001–C030, Ed25519-signed launch config (F02, F07). |
-| `crates/vanta-proxy` | Proxy Hub (F04): import grammar (`host:port`, `host:port:user:pass`, `user:pass@host:port`, `scheme://…` for http/https/socks5), username presets for Bright Data, SOAX, Geonode, DataImpulse, Webshare and Thordata with a sticky per-profile session, one-proxy-one-profile warning, offline launch gate, SOCKS5 UDP ASSOCIATE probe. Network Guard (F05): tokio relay on `127.0.0.1:<ephemeral>` with SOCKS5/HTTP(S) upstreams, DoH (Cloudflare/Google/Quad9 or custom, sent through the proxy), IPv6/LAN/UDP blocked, fail-closed kill switch (5 s heartbeat), and a client check: on Windows only processes in the profile's engine Job Object may use its relay (owning PID via `GetExtendedTcpTable`). TLS is rustls + ring. |
+| `crates/vanta-proxy` | Proxy Hub (F04): import grammar (`host:port`, `host:port:user:pass`, `user:pass@host:port`, `scheme://…` for http/https/socks5), username presets for Bright Data, SOAX, Geonode, DataImpulse, Webshare and Thordata with a sticky per-profile session, one-proxy-one-profile warning, offline launch gate, SOCKS5 UDP ASSOCIATE probe. Network Guard (F05): tokio relay on `127.0.0.1:<ephemeral>` with SOCKS5/HTTP(S) upstreams, DoH (Cloudflare/Google/Quad9 or custom, sent through the proxy), IPv6/LAN/UDP blocked, fail-closed kill switch (5 s heartbeat), IP echo for health runs (exit IP through the proxy, own IP compared only), and a client check: on Windows only processes in the profile's engine Job Object may use its relay (owning PID via `GetExtendedTcpTable`). TLS is rustls + ring. |
 | `crates/vanta-log` | Activity Log (F08): append-only, SHA-256 hash chain, XChaCha20-Poly1305 at rest under the vault's log key, 90-day retention with an anchor so the pruned chain still verifies, filters by kind/profile/time. |
 | `crates/vanta-launcher` | Launch gate (proxy online, guard armed, rules passed, health ≥ 60 and fresh), engine command line (no CDP), typed exit codes 86/87/88, process status from the real child process, Windows Job Object kill-on-close. The engine starts `CREATE_SUSPENDED`, is assigned to the profile's job, then resumed (`spawn_in_job`), so every child it spawns is in the job. One job per profile doubles as the relay's client authorizer (`JobAuthorizer`, `IsProcessInJob`). |
 | `crates/vanta-core` | Orchestration and the Tauri-facing API (`VantaApp`, serde DTOs): launch flow (vault → persona bound to the engine → per-launch relay with Job-Object-only clients → gate incl. last health report → Ed25519-signed launch config in the 0002 format → suspended start in the job), status watcher, relay events and launches into the activity log with the log head sealed in the vault and verified at unlock, health runs, profile/proxy CRUD, lock/unlock. |
@@ -127,6 +129,20 @@ inside 1 s, because a failed tunnel or a dropped upstream trips the switch at on
   and a proxy without UDP, no Binding Request may arrive;
 - a DNS leak test: unique `*.leak.vanta.invalid` names the page requests through the relay;
   every one must show up at the relay's DoH resolver.
+
+Before the engine starts, the run measures the network inputs of H01–H10 and H17–H22 with a
+plain-text **IP echo** endpoint (`https://api.ipify.org/` by default; Settings › Privacy,
+any `https://` URL that answers with the IP only):
+
+- the **exit IP**, asked twice through the profile's upstream proxy with the relay's own
+  tunnel code (the proxy resolves the echo host; nothing is resolved locally). The two
+  answers also test the sticky session (H07);
+- the PC's **own public IP**, asked once over a direct connection (echo host resolved over
+  DoH, never the system resolver), plus its local address on the default route (no packet
+  sent). These are only compared with the exit IP and the page's WebRTC candidates; they are
+  never stored, logged or returned to the UI. The echo service sees both requests.
+
+If the echo cannot be reached, the exit IP stays unknown and H01 fails with a hint.
 
 The probe page collects navigator, UA-CH, screen, WebGL/WebGPU, canvas/audio/ClientRects
 stability, fonts, voices, codecs, worker and iframe values, WebRTC candidates and automation
@@ -221,7 +237,7 @@ DNS/WebRTC leak test, blocked today) · Vault Lock (Ctrl+L, Lock now, idle auto-
 by the shell, change master password in Settings › Security & vault) · Activity Log
 (`#/activity`: paged, filtered by kind/profile/date, chain status from the unlock check,
 CSV export with a warning) · Settings (`#/settings/<section>`: general, security & vault,
-engine path, data, appearance, privacy, about).
+engine path, data, appearance, privacy with the health-check IP echo URL, about).
 
 **Shell.** Commands are thin wrappers over `VantaApp` (blocking work and the async launch /
 health / proxy-test calls run on the blocking pool); every command must be listed in
@@ -232,8 +248,8 @@ content), no telemetry, devtools only in debug builds, single instance, window t
 "Vanta". Background loops push engine status changes (1 s), new activity-log entries (2 s)
 and the idle auto-lock (the UI reports activity; the timer runs in Rust). Closing the window
 with running profiles asks first; quitting closes every profile's Job Object, which ends its
-engine. Data lives in `%LOCALAPPDATA%\Vanta`; `settings.json` there holds the UI settings and
-an optional engine path override.
+engine. Data lives in `%LOCALAPPDATA%\Vanta`; `settings.json` there holds the UI settings,
+the health-check IP echo URL and an optional engine path override.
 
 **Engine.** The installer does not bundle the engine yet (P3). The app looks for
 `%LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe` (or the path set in

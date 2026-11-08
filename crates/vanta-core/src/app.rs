@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use vanta_fingerprint::config::{pubkey_b64, sign_launch, LaunchBinding};
 use vanta_fingerprint::device::builtin;
 use vanta_fingerprint::Persona;
-use vanta_health::{evaluate, GuardSnapshot, HealthInput, HealthLab, LeakWatch, Outcome};
+use vanta_health::{evaluate, ExitInfo, GuardSnapshot, HealthInput, HealthLab, LeakWatch, Outcome};
 use vanta_launcher::{
     preflight, Block, EngineExit, EngineLaunch, EngineProcess, HealthGate, KillOnCloseJob,
     Preflight, ProcessTable, HEALTH_MAX_AGE_MS,
@@ -24,8 +24,8 @@ use vanta_log::{ActivityLog, LogFilter, LogKind};
 use vanta_proxy::state::{now_ms, MAX_CHECK_AGE_MS};
 use vanta_proxy::{
     check_assignment, parse_line, parse_list, probe, resolve_upstream, Credentials, DohProvider,
-    GuardPolicy, ProxyEndpoint, ProxyScheme, ProxyState, Relay, RelayConfig, RelayEvent, Resolver,
-    DEFAULT_HEARTBEAT,
+    EchoUrl, GuardPolicy, ProxyEndpoint, ProxyScheme, ProxyState, Relay, RelayConfig, RelayEvent,
+    Resolver, DEFAULT_HEARTBEAT,
 };
 use vanta_store::{HealthSummary, ProfileMeta, ProfileSecrets, ProxyRecord, Store};
 use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus, VantaError};
@@ -60,6 +60,10 @@ pub struct AppConfig {
     pub proxy_timeout: Duration,
     /// Relay kill-switch heartbeat.
     pub heartbeat: Duration,
+    /// Plain-text IP echo endpoint for health runs (exit IP through the proxy; the PC's
+    /// own public IP over a direct connection, compared only). Changeable at run time with
+    /// [`VantaApp::set_ip_echo_url`].
+    pub ip_echo_url: EchoUrl,
 }
 
 impl AppConfig {
@@ -72,6 +76,7 @@ impl AppConfig {
             health_timeout: Duration::from_secs(30),
             proxy_timeout: Duration::from_secs(10),
             heartbeat: DEFAULT_HEARTBEAT,
+            ip_echo_url: EchoUrl::default(),
         }
     }
 }
@@ -118,6 +123,7 @@ struct Inner {
     store: Mutex<Store>,
     procs: Mutex<ProcessTable>,
     running: Mutex<HashMap<ProfileId, Running>>,
+    ip_echo_url: Mutex<EchoUrl>,
 }
 
 /// The Vanta backend: profiles, proxies, vault, launches, health runs and the activity
@@ -177,8 +183,10 @@ impl VantaApp {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(storage("vault header", e)),
         };
+        let ip_echo_url = Mutex::new(cfg.ip_echo_url.clone());
         Ok(Self {
             inner: Arc::new(Inner {
+                ip_echo_url,
                 cfg,
                 deps,
                 log: Mutex::new(LogState {
@@ -195,6 +203,18 @@ impl VantaApp {
 
     pub fn config(&self) -> &AppConfig {
         &self.inner.cfg
+    }
+
+    /// The IP echo endpoint health runs use.
+    pub fn ip_echo_url(&self) -> String {
+        lock(&self.inner.ip_echo_url).to_string()
+    }
+
+    /// Change the IP echo endpoint (`https://host[:port][/path]`, plain-text answer).
+    pub fn set_ip_echo_url(&self, url: &str) -> CoreResult<()> {
+        let url = EchoUrl::parse(url)?;
+        *lock(&self.inner.ip_echo_url) = url;
+        Ok(())
     }
 
     // ---- vault ---------------------------------------------------------------------
@@ -1216,6 +1236,40 @@ impl VantaApp {
 
     // ---- health --------------------------------------------------------------------
 
+    /// Exit IP through the profile's proxy (two samples, which also test the sticky
+    /// session) and the PC's own addresses, measured at the same time. A failure leaves
+    /// the value unknown, which the checks report.
+    async fn measure_ips(
+        &self,
+        p: &Prepared,
+        upstream: Option<std::net::SocketAddr>,
+        bootstrap: Arc<dyn Resolver>,
+    ) -> (ExitInfo, Vec<std::net::IpAddr>) {
+        let url = lock(&self.inner.ip_echo_url).clone();
+        let timeout = self.inner.cfg.proxy_timeout;
+        let echo = &self.inner.deps.ip_echo;
+        let exit = async {
+            let mut samples = Vec::new();
+            if let Some(addr) = upstream {
+                for _ in 0..2 {
+                    match echo.exit_ip(&url, &p.endpoint, addr, timeout).await {
+                        Ok(ip) => samples.push(ip),
+                        Err(_) => break,
+                    }
+                }
+            }
+            samples
+        };
+        let host = echo.host_ips(&url, bootstrap, timeout);
+        let (samples, host_ips) = tokio::join!(exit, host);
+        let exit = ExitInfo {
+            ip: samples.first().copied(),
+            sticky_samples: samples,
+            ..ExitInfo::default()
+        };
+        (exit, host_ips)
+    }
+
     /// F03: start the health lab, launch the engine (same flow: relay, signed config,
     /// suspended start in the job) with the lab's switches, collect, score, store the
     /// summary and log it.
@@ -1226,20 +1280,19 @@ impl VantaApp {
         let prepared = self.prepare(id)?;
         let mut input = HealthInput::new(prepared.persona.clone());
         let lab = HealthLab::start(&input).await?;
-        let watch = {
-            // The relay resolver for this run, wrapped so the DNS leak test sees each name.
-            let bootstrap = self.inner.deps.net.bootstrap(&prepared.policy);
-            let addr = match resolve_upstream(&prepared.endpoint, &*bootstrap).await {
-                Ok(a) => a,
-                Err(_) => "0.0.0.0:0".parse().expect("addr"),
-            };
-            Arc::new(LeakWatch::new(self.inner.deps.net.relay_resolver(
-                &prepared.policy,
-                &prepared.endpoint,
-                addr,
-            )))
-        };
+        let bootstrap = self.inner.deps.net.bootstrap(&prepared.policy);
+        let upstream = resolve_upstream(&prepared.endpoint, &*bootstrap).await.ok();
+        // The relay resolver for this run, wrapped so the DNS leak test sees each name.
+        let watch = Arc::new(LeakWatch::new(self.inner.deps.net.relay_resolver(
+            &prepared.policy,
+            &prepared.endpoint,
+            upstream.unwrap_or_else(|| "0.0.0.0:0".parse().expect("addr")),
+        )));
         let _ = lock(&self.inner.store).set_status(id, ProfileStatus::Starting, now_ms());
+        // Real network inputs for H01-H10 / H17-H22. The host IPs live only in `input`
+        // for the comparison; they are never logged, stored or returned.
+        let (exit, host_ips) = self.measure_ips(&prepared, upstream, bootstrap).await;
+        input.exit = exit;
         let started = match self
             .start_engine(
                 &prepared,
@@ -1269,6 +1322,7 @@ impl VantaApp {
             relay_armed: !started.relay.is_tripped(),
             engine_uses_relay: true,
             doh_through_proxy: true,
+            host_ips,
             ..GuardSnapshot::default()
         };
         let input = lab
