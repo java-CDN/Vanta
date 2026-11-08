@@ -57,6 +57,7 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 | `engine/` | The engine (`vanta-chromium.exe`): pinned upstream, Vanta Chromium patches, GN flags, build scripts. See `engine/README.md`. |
 | `.github/workflows/engine-s1.yml`, `engine-s2.yml` | Engine CI stages S1 (patches apply, ubuntu) and S2 (`gn gen --check`, windows). |
 | `scripts/check.sh` | All local quality gates. |
+| `scripts/stage_engine.py` | Checks a packaged engine (`vanta-engine-win64.zip` + `SHA256SUMS`) and stages it for the installer (see [Desktop app](#desktop-app)); tests in `scripts/test_stage_engine.py`. |
 | `scripts/no-telemetry.sh` | Fails on references to analytics/telemetry endpoints or SDKs. |
 | `docs/` | Master Plan v3 (PDF) and the clickable prototype. |
 
@@ -253,10 +254,30 @@ with running profiles asks first; quitting closes every profile's Job Object, wh
 engine. Data lives in `%LOCALAPPDATA%\Vanta`; `settings.json` there holds the UI settings,
 the health-check IP echo URL and an optional engine path override.
 
-**Engine.** The installer does not bundle the engine yet (P3). The app looks for
-`%LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe` (or the path set in
-Settings › Engine, read at start-up) and the `VERSION` file next to it; until the engine is
-there, launches and health runs fail with a clear error and everything else works.
+**Engine.** The app uses, in this order: the path set in Settings › Engine (read at
+start-up), the engine shipped with the installer (`engine\` next to `vanta.exe`), or
+`%LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe`, with the `VERSION` file next
+to it. Until an engine is there, launches and health runs fail with a clear error and
+everything else works.
+
+The installer bundles an engine only when one is supplied: run CI (`ci.yml`) manually with
+`engine_run_id` = an `engine-s3.yml` run id. Its `vanta-engine-win64` artifact (the output
+of `engine/scripts/package_engine.py`: `vanta-engine-win64.zip` + `SHA256SUMS`) goes
+through `scripts/stage_engine.py`, which checks the zip and `vanta-chromium.exe` against
+`SHA256SUMS`, extracts it, adds a `SHA256SUMS` line for every other file, writes `VERSION`
+(from `engine/VERSION` of the checkout, so use an engine built from the same version) and a
+`tauri build --config` overlay that ships it as `engine\`. At every start the app checks
+each file listed in that `SHA256SUMS` in the background (Settings › Engine › Integrity);
+until the check passes, or if a file is missing or differs, launches and health runs are
+refused with a clear error ("reinstall Vanta"). An engine folder without `SHA256SUMS` is not
+checked and behaves as before. Locally:
+
+```sh
+python scripts/stage_engine.py --from <folder with the zip and SHA256SUMS> \
+  --to apps/desktop/src-tauri/engine-bundle --version-file engine/VERSION \
+  --tauri-config apps/desktop/src-tauri/tauri.engine.json
+cd apps/desktop && npm run tauri build -- --bundles nsis --config src-tauri/tauri.engine.json
+```
 
 ### Run it
 

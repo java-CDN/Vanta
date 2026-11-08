@@ -84,6 +84,7 @@ export function errorText(e: unknown): string {
     case 'unsupported': return c.message;
     case 'storage': return `Storage error: ${c.message}`;
     case 'network': return `Network error: ${c.message}`;
+    case 'engine_integrity': return `Engine check: ${c.message.charAt(0).toUpperCase()}${c.message.slice(1)}.`;
     case 'confirm_required': return `The last ${c.failures} launches failed in a row (last: ${c.last_error}).`;
   }
 }

@@ -37,7 +37,7 @@ export function Nav() {
         </div>
       ))}
       <div className="navfoot">
-        <div className="r" title={`Vanta Chromium ${a.info.engine_version}`}><span className={`dot ${a.info.engine_found ? '' : 'w'}`} />Engine {a.info.engine_version}{a.info.engine_found ? '' : ' · not found'}</div>
+        <div className="r" id="enginelbl" title={`Vanta Chromium ${a.info.engine_version}`}><span className={`dot ${!a.info.engine_found || a.info.engine_check.state === 'failed' ? 'w' : ''}`} />Engine {a.info.engine_version}{a.info.engine_check.state === 'failed' ? ' · invalid' : !a.info.engine_found ? ' · not found' : a.info.engine_check.state === 'pending' ? ' · checking…' : ''}</div>
         <div className="r" id="vaultlbl"><span className="dot i" />Vault unlocked · {autolockLabel(a.settings.autolock_minutes)}</div>
         <div className="lockbar" title="Time until auto-lock"><i id="lockbar" style={{ width: ms ? `${((left / ms) * 100).toFixed(1)}%` : '100%' }} /></div>
         <div className="dim" id="lockleft" style={{ fontSize: 10.5, margin: '-3px 0 0 14px' }}>{ms ? `Locks in ${Math.floor(left / 60000)}:${pad(Math.floor((left % 60000) / 1000))} if idle` : 'auto-lock is off'}</div>

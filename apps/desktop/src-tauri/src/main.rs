@@ -12,7 +12,7 @@ mod settings;
 use commands::{now_ms, Shell};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, WindowEvent};
-use vanta_core::{AppConfig, Deps, EngineInfo, VantaApp};
+use vanta_core::{verify_engine_dir, AppConfig, Deps, EngineCheck, EngineInfo, VantaApp};
 use vanta_vault::AutoLock;
 
 fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Error>> {
@@ -26,10 +26,12 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
     std::fs::create_dir_all(&data_dir)?;
     let settings_path = data_dir.join("settings.json");
     let settings = settings::Settings::load(&settings_path);
-    let engine_path = match &settings.engine_path {
-        Some(p) => paths::expand(p, &local),
-        None => paths::default_engine(&local),
-    };
+    let resource_dir = handle.path().resource_dir().ok();
+    let engine_path = paths::choose_engine(
+        settings.engine_path.as_deref(),
+        &local,
+        resource_dir.as_deref(),
+    );
     let engine = EngineInfo {
         exe: engine_path.clone(),
         version: paths::engine_version(&engine_path),
@@ -37,6 +39,7 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
     let mut cfg = AppConfig::new(&data_dir, engine);
     cfg.ip_echo_url = settings.echo_url();
     let app = VantaApp::open(cfg, Deps::production()).map_err(|e| e.to_string())?;
+    check_engine(&app, &engine_path);
     Ok(Shell {
         app,
         autolock: Mutex::new(AutoLock::new(settings.autolock_minutes, now_ms())),
@@ -47,6 +50,21 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
         engine_path,
         data_dir,
     })
+}
+
+/// An engine shipped with the installer has a `SHA256SUMS` next to it: check every listed
+/// file in the background (the engine is a few hundred MB) and refuse launches until the
+/// check has passed. Without `SHA256SUMS` nothing changes.
+fn check_engine(app: &VantaApp, exe: &std::path::Path) {
+    let Some(dir) = exe.parent().map(|d| d.to_path_buf()) else {
+        return;
+    };
+    if !dir.join(vanta_core::engine_check::ENGINE_SUMS).is_file() {
+        return;
+    }
+    app.set_engine_check(EngineCheck::Pending);
+    let app = app.clone();
+    std::thread::spawn(move || app.set_engine_check(verify_engine_dir(&dir)));
 }
 
 fn main() {

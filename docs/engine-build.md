@@ -52,6 +52,16 @@ The stage in which ninja finishes:
 
 The `complete` job fails unless some stage reported `finished=true`.
 
+## Into the installer
+
+The desktop installer bundles an engine only on request: run `ci.yml` by hand
+(Actions → CI → Run workflow) with `engine_run_id` = the id of a finished S3 run
+whose `vanta-engine-win64` artifact is still there (7 days). The desktop job
+downloads it, `scripts/stage_engine.py` checks it against `SHA256SUMS` and
+stages it, and `tauri build` ships it as `engine\` next to `vanta.exe`; the app
+re-checks every file at start. Pushes and pull requests build the installer
+without an engine. Details: README › Desktop app › Engine.
+
 ## Inputs
 
 | Input | Default | Meaning |

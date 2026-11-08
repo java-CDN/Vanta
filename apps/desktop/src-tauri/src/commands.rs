@@ -86,6 +86,8 @@ pub struct AppInfo {
     engine_version: String,
     engine_path: String,
     engine_found: bool,
+    /// SHA256SUMS check of an engine shipped with the installer.
+    engine_check: EngineCheck,
     data_dir: String,
     log_integrity: Option<LogIntegrity>,
     mock: bool,
@@ -100,6 +102,7 @@ pub fn app_info(app: AppHandle, s: State<'_, Shell>) -> AppInfo {
         engine_version: s.app.config().engine.version.to_string(),
         engine_path: s.engine_path.display().to_string(),
         engine_found: s.engine_path.is_file(),
+        engine_check: s.app.engine_check(),
         data_dir: s.data_dir.display().to_string(),
         log_integrity: held(&s.log_integrity).clone(),
         mock: false,

@@ -9,7 +9,7 @@ export async function connect(): Promise<Backend> {
   if (__MOCK__) {
     const { mockBackend } = await import('./mock');
     const qs = new URLSearchParams(location.search);
-    const b = mockBackend({ fresh: qs.get('fresh') === '1', unlocked: qs.get('unlocked') === '1', extraProfiles: Number(qs.get('profiles') || 0) });
+    const b = mockBackend({ fresh: qs.get('fresh') === '1', unlocked: qs.get('unlocked') === '1', extraProfiles: Number(qs.get('profiles') || 0), engineCheck: qs.get('engine') === 'failed' ? 'failed' : undefined });
     (window as unknown as { __vanta: Backend }).__vanta = b;
     return b;
   }

@@ -79,11 +79,16 @@ export function SettingsScreen() {
       <dt>Version</dt><dd className="mono">{a.info.engine_version}</dd>
       <dt>Path in use</dt><dd className="mono">{a.info.engine_path}</dd>
       <dt>Status</dt><dd className={a.info.engine_found ? 'ok' : 'warn'}>{a.info.engine_found ? 'found' : 'not found at this path — profiles cannot launch until the engine is installed'}</dd>
+      <dt>Integrity</dt><dd id="engineCheck" className={{ verified: 'ok', failed: 'bad', pending: 'warn', not_bundled: 'muted' }[a.info.engine_check.state]}>{
+        a.info.engine_check.state === 'verified' ? `SHA256SUMS verified · ${a.info.engine_check.files} files`
+        : a.info.engine_check.state === 'failed' ? `does not match SHA256SUMS (${a.info.engine_check.message}) — launches are blocked; reinstall Vanta`
+        : a.info.engine_check.state === 'pending' ? 'checking against SHA256SUMS…'
+        : 'no SHA256SUMS next to this engine (not installed with Vanta); not checked'}</dd>
       <dt>Fingerprint version</dt><dd>Always taken from this engine (rule C030). Profiles never store a Chrome version.</dd>
       <dt>Updates</dt><dd>Arrive with a new Vanta installer. No background update checks.</dd>
     </div>
-    <div className="field" style={{ marginTop: 12 }}><label htmlFor="setEngine">Engine executable (leave empty for the default install path)</label>
-      <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setEngine" style={{ flex: 1 }} value={enginePath} placeholder="%LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe" onChange={e => setEnginePath(e.target.value)} spellCheck={false} />
+    <div className="field" style={{ marginTop: 12 }}><label htmlFor="setEngine">Engine executable (leave empty for the engine installed with Vanta, or the default install path)</label>
+      <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setEngine" style={{ flex: 1 }} value={enginePath} placeholder="engine installed with Vanta, else %LOCALAPPDATA%\Programs\Vanta\engine\vanta-chromium.exe" onChange={e => setEnginePath(e.target.value)} spellCheck={false} />
         <button className="btn" disabled={(st.engine_path ?? '') === enginePath.trim()} onClick={() => set({ engine_path: enginePath.trim() || null }, 'Engine path saved · restart Vanta to use it')}>Save</button></div>
       <span className="dim" style={{ fontSize: 11 }}>The version is read from the VERSION file next to the executable. Takes effect after a restart.</span></div>
   </div>;

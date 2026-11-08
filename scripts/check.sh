@@ -12,6 +12,10 @@ cargo clippy --workspace --exclude vanta-desktop --all-targets -- -D warnings
 cargo test --workspace --exclude vanta-desktop
 cargo check --workspace --exclude vanta-desktop --target x86_64-pc-windows-gnu
 bash scripts/no-telemetry.sh
+if command -v python3 >/dev/null; then
+  python3 -m unittest discover -s scripts -p 'test_*.py'
+  rm -rf scripts/__pycache__
+fi
 # Desktop UI: typecheck, unit tests, both builds, bundle budget, headless smoke (mock build).
 if command -v npm >/dev/null; then
   (

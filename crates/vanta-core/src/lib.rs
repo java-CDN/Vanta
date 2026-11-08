@@ -42,6 +42,7 @@
 mod app;
 mod deps;
 mod dto;
+pub mod engine_check;
 mod error;
 
 pub use app::{
@@ -52,6 +53,7 @@ pub use deps::{
     Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, RelayClients,
 };
 pub use dto::*;
+pub use engine_check::{verify_engine_dir, EngineCheck};
 pub use error::{BlockReason, CoreError, CoreResult};
 
 #[cfg(test)]

@@ -1745,3 +1745,46 @@ async fn other_errors_do_not_count_and_delete_forgets() {
     e.app.delete_profiles(&[other]).unwrap();
     assert_eq!(e.app.failed_launches(other), 0);
 }
+
+// ---- bundled engine integrity ----------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn engine_that_fails_its_sha256sums_never_starts() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    fresh_health(&e, id, &proxy, 90);
+    assert_eq!(e.app.engine_check(), EngineCheck::NotBundled);
+    for check in [
+        EngineCheck::Pending,
+        EngineCheck::Failed {
+            message: "chrome.dll differs".into(),
+        },
+    ] {
+        e.app.set_engine_check(check.clone());
+        for r in [
+            e.app.launch_profile(id).await.map(|_| ()),
+            e.app.run_health(id).await.map(|_| ()),
+        ] {
+            match r {
+                Err(CoreError::EngineIntegrity { message }) => {
+                    assert_eq!(Some(message), check.launch_problem())
+                }
+                other => panic!("expected EngineIntegrity, got {other:?}"),
+            }
+        }
+    }
+    assert_eq!(e.engine.count(), 0, "nothing was started");
+    assert!(up.targets.lock().unwrap().is_empty(), "no relay traffic");
+    assert_eq!(e.echo.exit_calls.lock().unwrap().len(), 0, "no IP echo");
+    assert_eq!(e.app.failed_launches(id), 0, "not a failed launch");
+    let json = serde_json::to_value(CoreError::EngineIntegrity {
+        message: "m".into(),
+    })
+    .unwrap();
+    assert_eq!(json["kind"], "engine_integrity");
+
+    e.app.set_engine_check(EngineCheck::Verified { files: 3 });
+    e.app.launch_profile(id).await.unwrap();
+    e.app.stop_profile(id).unwrap();
+}

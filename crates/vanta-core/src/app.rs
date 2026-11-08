@@ -2,6 +2,7 @@
 
 use crate::deps::Deps;
 use crate::dto::*;
+use crate::engine_check::EngineCheck;
 use crate::error::{BlockReason, CoreError, CoreResult};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,7 @@ struct Inner {
     ip_echo_url: Mutex<EchoUrl>,
     /// Consecutive failed launches per profile and the last failure (this session).
     failed_launches: Mutex<HashMap<ProfileId, (u32, String)>>,
+    engine_check: Mutex<EngineCheck>,
 }
 
 /// The Vanta backend: profiles, proxies, vault, launches, health runs and the activity
@@ -194,6 +196,7 @@ impl VantaApp {
             inner: Arc::new(Inner {
                 ip_echo_url,
                 failed_launches: Mutex::new(HashMap::new()),
+                engine_check: Mutex::new(EngineCheck::NotBundled),
                 cfg,
                 deps,
                 log: Mutex::new(LogState {
@@ -210,6 +213,17 @@ impl VantaApp {
 
     pub fn config(&self) -> &AppConfig {
         &self.inner.cfg
+    }
+
+    /// Integrity of the engine shipped with the installer (see [`crate::engine_check`]).
+    pub fn engine_check(&self) -> EngineCheck {
+        lock(&self.inner.engine_check).clone()
+    }
+
+    /// Record the engine check; set `Pending` before a background check starts. While it is
+    /// not `NotBundled` or `Verified`, launches and health runs are refused.
+    pub fn set_engine_check(&self, check: EngineCheck) {
+        *lock(&self.inner.engine_check) = check;
     }
 
     /// The IP echo endpoint health runs use.
@@ -948,6 +962,9 @@ impl VantaApp {
 
     fn prepare(&self, id: ProfileId) -> CoreResult<Prepared> {
         self.require_unlocked()?;
+        if let Some(message) = lock(&self.inner.engine_check).launch_problem() {
+            return Err(CoreError::EngineIntegrity { message });
+        }
         let meta = lock(&self.inner.store).get(id)?;
         let cfg = self.load_config(id)?;
         let mut persona = cfg.persona;

@@ -195,7 +195,20 @@ export function AppProvider({ b, initialInfo, initialSettings, children }: { b: 
     const [i] = await Promise.all([b.appInfo(), refreshProfiles(), refreshProxies()]);
     setInfo(i);
     setLocked(false);
-  }, [b, refreshProfiles, refreshProxies]);
+    if (i.engine_check.state === 'failed') toast(<>The installed engine does not match its SHA256SUMS ({i.engine_check.message}). Launches are blocked; reinstall Vanta.</>, 'bad', 'shield');
+  }, [b, refreshProfiles, refreshProxies, toast]);
+
+  // The bundled engine is hashed in the background at start: follow the check to its end.
+  useEffect(() => {
+    if (info.engine_check.state !== 'pending') return;
+    const t = setTimeout(() => {
+      b.appInfo().then(i => {
+        setInfo(i);
+        if (i.engine_check.state === 'failed') toast(<>The installed engine does not match its SHA256SUMS ({i.engine_check.message}). Launches are blocked; reinstall Vanta.</>, 'bad', 'shield');
+      }).catch(() => {});
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [b, info, toast]);
 
   const value = useMemo<AppCtx>(() => ({
     b, info, settings, locked, route: loc.route, routeArg: loc.arg, profiles, proxies, busy, relays, flash, drawer, toasts, modal, menu,

@@ -87,6 +87,10 @@ pub enum CoreError {
         "the last {failures} launches failed in a row (last: {last_error}); confirm to try again"
     )]
     ConfirmRequired { failures: u32, last_error: String },
+    /// The engine shipped with the installer failed (or has not finished) its SHA256SUMS
+    /// check ([`crate::EngineCheck`]); nothing is started.
+    #[error("engine integrity: {message}")]
+    EngineIntegrity { message: String },
 }
 
 impl CoreError {

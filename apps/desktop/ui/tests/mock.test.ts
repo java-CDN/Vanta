@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mockBackend } from '../src/api/mock';
+import { errorText } from '../src/api/backend';
 import { parseList } from '../src/lib/proxyparse';
 
 describe('mock backend (demo data from the prototype)', () => {
@@ -91,5 +92,14 @@ describe('proxy import preview (vanta-proxy grammar)', () => {
     await b.launchProfile(jp.id, true);
     await b.stopProfile(jp.id);
     await b.launchProfile(jp.id);
+  });
+  it('refuses launches when the bundled engine failed its SHA256SUMS check', async () => {
+    const b = mockBackend({ speed: 0, unlocked: true, engineCheck: 'failed' });
+    expect((await b.appInfo()).engine_check).toEqual({ state: 'failed', message: 'chrome.dll differs' });
+    const nl = (await b.listProfiles('', 1000, 0)).items.find(p => p.name === 'shop-nl-01')!;
+    const err = await b.launchProfile(nl.id).catch(e => e);
+    expect(err).toMatchObject({ kind: 'engine_integrity' });
+    expect(errorText(err)).toContain('SHA256SUMS');
+    expect((await mockBackend({ speed: 0 }).appInfo()).engine_check).toEqual({ state: 'not_bundled' });
   });
 });

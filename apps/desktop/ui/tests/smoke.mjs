@@ -213,6 +213,17 @@ await check('unlock with recovery key', async () => {
   return (await page.locator('#pwerr').innerText()).includes('recovery key');
 });
 
+// 13 bundled engine that fails its SHA256SUMS check
+await check('engine integrity failure: footer, Settings, launch refused', async () => {
+  await page.goto(base + '?unlocked=1&engine=failed#/profiles'); await page.waitForSelector('.nav');
+  const foot = (await page.locator('#enginelbl').innerText()).includes('invalid');
+  await rowOf('shop-nl-01').locator('[data-a=launchP]').click();
+  const refused = await until(async () => (await toasts()).includes('SHA256SUMS'));
+  await go('settings/engine'); await sleep(150);
+  const shown = (await page.locator('#engineCheck').innerText()).includes('chrome.dll differs');
+  return foot && refused && shown;
+});
+
 await sleep(200);
 const fails = results.filter(r => r.startsWith('FAIL')).length;
 console.log(results.join('\n'));

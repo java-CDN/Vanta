@@ -5,12 +5,24 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual run, optionally bundling an engine into the NSIS installer.
+  workflow_dispatch:
+    inputs:
+      engine_run_id:
+        description: >-
+          Optional: id of an engine-s3.yml run; its "vanta-engine-win64" artifact
+          (vanta-engine-win64.zip + SHA256SUMS) is checked and bundled into the installer.
+          Empty = no engine (the app shows "Engine not found").
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Manual runs (which may bundle an engine) are not cancelled by pushes, nor the reverse.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -40,6 +52,10 @@ jobs:
     name: Desktop app (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # Only to read another run's artifact (the optional engine).
+      actions: read
     defaults:
       run:
         working-directory: apps/desktop
@@ -70,8 +86,34 @@ jobs:
           npm run smoke
       - name: cargo clippy (vanta-desktop)
         run: cargo clippy -p vanta-desktop --all-targets -- -D warnings
+      # Optional engine: only on a manual run with engine_run_id. The artifact is checked
+      # against its SHA256SUMS and extracted by scripts/stage_engine.py; the app checks the
+      # installed files again at every start.
+      - name: download engine artifact (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.engine_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: vanta-engine-win64
+          run-id: ${{ inputs.engine_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/engine-dl
+      - name: stage engine (optional)
+        if: github.event_name == 'workflow_dispatch' && inputs.engine_run_id != ''
+        working-directory: .
+        shell: bash
+        run: >-
+          python scripts/stage_engine.py --from "$RUNNER_TEMP/engine-dl"
+          --to apps/desktop/src-tauri/engine-bundle --version-file engine/VERSION
+          --tauri-config apps/desktop/src-tauri/tauri.engine.json
       - name: tauri build (NSIS, unsigned)
-        run: npx tauri build --bundles nsis
+        shell: bash
+        run: |
+          if [ -f src-tauri/tauri.engine.json ]; then
+            echo "bundling the staged engine"
+            npx tauri build --bundles nsis --config src-tauri/tauri.engine.json
+          else
+            npx tauri build --bundles nsis
+          fi
       - name: sizes
         shell: bash
         working-directory: .
@@ -92,6 +134,15 @@ jobs:
           path: apps/desktop/smoke-shots/
           retention-days: 7
           if-no-files-found: ignore
+
+  scripts:
+    name: Scripts (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: stage_engine.py tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
   no-telemetry:
     name: No telemetry (ubuntu-latest)

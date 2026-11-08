@@ -183,6 +183,12 @@ export interface GuardPolicy {
 }
 
 /** Shell state for the UI (no secrets). */
+export type EngineCheck =
+  | { state: 'not_bundled' }
+  | { state: 'pending' }
+  | { state: 'verified'; files: number }
+  | { state: 'failed'; message: string };
+
 export interface AppInfo {
   app_version: string;
   initialized: boolean;
@@ -190,6 +196,8 @@ export interface AppInfo {
   engine_version: string;
   engine_path: string;
   engine_found: boolean;
+  /** SHA256SUMS check of an engine shipped with the installer (vanta_core::EngineCheck). */
+  engine_check: EngineCheck;
   data_dir: string;
   /** Result of the activity-log verification at the last unlock. */
   log_integrity: LogIntegrity | null;
@@ -228,7 +236,9 @@ export type CoreError =
   | { kind: 'storage'; message: string }
   | { kind: 'network'; message: string }
   /** The last `failures` launches failed in a row: ask the user, then launch with `confirmed`. */
-  | { kind: 'confirm_required'; failures: number; last_error: string };
+  | { kind: 'confirm_required'; failures: number; last_error: string }
+  /** The bundled engine failed (or is still running) its SHA256SUMS check. */
+  | { kind: 'engine_integrity'; message: string };
 
 export interface LockedEvent { reason: 'idle' | 'user' | 'shortcut' }
 export interface CloseRequest { running: number }

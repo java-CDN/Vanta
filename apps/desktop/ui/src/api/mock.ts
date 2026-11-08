@@ -15,6 +15,8 @@ export interface MockOptions {
   fresh?: boolean;
   /** Start unlocked. */
   unlocked?: boolean;
+  /** Bundled-engine check to report: `failed` blocks launches like vanta-core. */
+  engineCheck?: 'failed';
   /** Extra generated profiles (virtual list test). */
   extraProfiles?: number;
   /** Delay scale (0 = instant, for unit tests). */
@@ -42,6 +44,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   let unlocked = !!opts.unlocked && initialized;
   let password = 'demo';
   let recovery = '';
+  const engineCheck: T.EngineCheck = opts.engineCheck === 'failed' ? { state: 'failed', message: 'chrome.dll differs' } : { state: 'not_bundled' };
   /** Consecutive failed launches per profile (like vanta-core). */
   const failed = new Map<string, { n: number; last: string }>();
   let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null };
@@ -195,7 +198,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   const b: Backend = {
     kind: 'mock',
     async appInfo() {
-      return { app_version: '0.1.0', initialized, unlocked, engine_version: ENGINE, engine_path: settings.engine_path ?? '%LOCALAPPDATA%\\Programs\\Vanta\\engine\\vanta-chromium.exe', engine_found: false, data_dir: '%LOCALAPPDATA%\\Vanta', log_integrity: unlocked ? { state: 'ok' } : null, mock: true };
+      return { app_version: '0.1.0', initialized, unlocked, engine_version: ENGINE, engine_path: settings.engine_path ?? '%LOCALAPPDATA%\\Programs\\Vanta\\engine\\vanta-chromium.exe', engine_found: engineCheck.state !== 'not_bundled', engine_check: clone(engineCheck), data_dir: '%LOCALAPPDATA%\\Vanta', log_integrity: unlocked ? { state: 'ok' } : null, mock: true };
     },
     async createVault(pw) {
       if (initialized) throw { kind: 'already_initialized' };
@@ -313,6 +316,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     },
     async launchProfile(id, confirmed = false) {
       need(); const p = prof(id);
+      if (engineCheck.state === 'failed') throw { kind: 'engine_integrity', message: `the installed engine does not match its SHA256SUMS (${engineCheck.message}); reinstall Vanta` };
       if (p.meta.status === 'running') throw { kind: 'already_running' };
       const f = failed.get(id);
       if (!confirmed && f && f.n >= MAX_FAILED_LAUNCHES) throw { kind: 'confirm_required', failures: f.n, last_error: f.last };
