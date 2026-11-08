@@ -1486,3 +1486,139 @@ async fn ip_echo_url_is_validated_and_used() {
         ["https://icanhazip.com/"]
     );
 }
+
+// ---- change password, end to end ---------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread")]
+async fn change_password_keeps_recovery_secrets_and_the_log() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let recovery = e.app.create_vault(MASTER).unwrap().recovery_key;
+    let (id, proxy) = setup(&e, &up);
+    fresh_health(&e, id, &proxy, 90);
+    e.app.launch_profile(id).await.unwrap();
+    e.app.stop_profile(id).unwrap();
+    let before = log_kinds(&e, id);
+    assert!(before.contains(&LogKind::ProfileLaunch));
+    let header_before = std::fs::read(e.dir.join("vault.json")).unwrap();
+
+    const NEW: &str = "a brand new passphrase";
+    e.app.change_password(MASTER, NEW).unwrap();
+    let header_after = std::fs::read(e.dir.join("vault.json")).unwrap();
+    assert_ne!(header_before, header_after, "password wrap rewritten");
+    let (h0, h1): (serde_json::Value, serde_json::Value) = (
+        serde_json::from_slice(&header_before).unwrap(),
+        serde_json::from_slice(&header_after).unwrap(),
+    );
+    assert_eq!(
+        h0["recovery_wrap"], h1["recovery_wrap"],
+        "recovery wrap untouched"
+    );
+    assert_ne!(h0["salt"], h1["salt"], "fresh salt for the new password");
+
+    // The same session keeps working (no re-unlock needed).
+    assert!(e.app.fingerprint(id).is_ok());
+    e.app.lock().unwrap();
+
+    // Old password refused, new one opens; the log head still matches and every earlier
+    // entry is readable; sealed secrets (proxy password, signing key) still open.
+    assert!(matches!(e.app.unlock(MASTER), Err(CoreError::Crypto)));
+    let r = e.app.unlock(NEW).unwrap();
+    assert_eq!(r.log_integrity, LogIntegrity::Ok);
+    let after = log_kinds(&e, id);
+    assert_eq!(&after[..before.len()], &before[..]);
+    assert!(all_log_details(&e).contains("master password changed"));
+    assert!(e.app.fingerprint(id).is_ok());
+    e.app.test_proxy(&proxy).await.unwrap();
+    assert!(up
+        .logins
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|(u, p)| u == USER && p == PASSWORD));
+    e.app.launch_profile(id).await.unwrap();
+    e.app.stop_profile(id).unwrap();
+    e.app.lock().unwrap();
+
+    // The recovery key still opens the vault, with the log intact.
+    let r = e.app.unlock_with_recovery(&recovery).unwrap();
+    assert_eq!(r.log_integrity, LogIntegrity::Ok);
+    e.app.lock().unwrap();
+
+    // A fresh start reads the new header from disk.
+    let reopened = VantaApp::open(config(&e.dir), Deps::production()).unwrap();
+    assert!(matches!(reopened.unlock(MASTER), Err(CoreError::Crypto)));
+    assert_eq!(
+        reopened.unlock(NEW).unwrap().log_integrity,
+        LogIntegrity::Ok
+    );
+}
+
+#[test]
+fn wrong_current_password_changes_nothing() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    let header = std::fs::read(e.dir.join("vault.json")).unwrap();
+    for (cur, new) in [
+        ("not the password", "a brand new passphrase"),
+        ("", "a brand new passphrase"),
+        ("AAAA-BBBB-CCCC", "a brand new passphrase"),
+    ] {
+        assert!(matches!(
+            e.app.change_password(cur, new),
+            Err(CoreError::Crypto)
+        ));
+    }
+    // Right current password, refused new one: nothing changes either.
+    assert!(matches!(
+        e.app.change_password(MASTER, "short"),
+        Err(CoreError::Invalid { .. })
+    ));
+    assert_eq!(std::fs::read(e.dir.join("vault.json")).unwrap(), header);
+    e.app.lock().unwrap();
+    assert!(matches!(
+        e.app.change_password(MASTER, "a brand new passphrase"),
+        Err(CoreError::Locked)
+    ));
+    e.app.unlock(MASTER).unwrap();
+}
+
+#[test]
+fn forgotten_password_can_be_replaced_with_the_recovery_key() {
+    let e = env();
+    let recovery = e.app.create_vault(MASTER).unwrap().recovery_key;
+    e.app.lock().unwrap();
+    e.app.unlock_with_recovery(&recovery).unwrap();
+    // The lock screen tells the user to set a new password: the recovery key stands in
+    // for the lost one (with or without dashes, any case).
+    let typed = recovery.replace('-', "").to_lowercase();
+    e.app
+        .change_password(&typed, "my new master passphrase")
+        .unwrap();
+    e.app.lock().unwrap();
+    e.app.unlock("my new master passphrase").unwrap();
+    e.app.lock().unwrap();
+    e.app.unlock_with_recovery(&recovery).unwrap();
+}
+
+#[test]
+fn failed_header_write_leaves_the_vault_as_it_was() {
+    let e = env();
+    e.app.create_vault(MASTER).unwrap();
+    let header = std::fs::read(e.dir.join("vault.json")).unwrap();
+    // A directory where the temporary header goes makes the write fail.
+    let tmp = e.dir.join("vault.json.tmp");
+    std::fs::create_dir(&tmp).unwrap();
+    assert!(matches!(
+        e.app.change_password(MASTER, "a brand new passphrase"),
+        Err(CoreError::Storage { .. })
+    ));
+    std::fs::remove_dir(&tmp).unwrap();
+    assert_eq!(std::fs::read(e.dir.join("vault.json")).unwrap(), header);
+    // The open vault kept the old password too (no half-changed state in memory).
+    e.app
+        .change_password(MASTER, "a brand new passphrase")
+        .unwrap();
+    e.app.lock().unwrap();
+    e.app.unlock("a brand new passphrase").unwrap();
+}

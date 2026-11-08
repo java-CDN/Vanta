@@ -234,7 +234,9 @@ report export) · Proxy Hub (`#/proxies`: import with preview, test, test all, a
 shared-proxy warning, delete) with the Geo Auto-Match tab (`#/geo`) · Network Guard
 (`#/network`: guards that cannot be turned off, per-profile DoH provider, traffic path,
 DNS/WebRTC leak test, blocked today) · Vault Lock (Ctrl+L, Lock now, idle auto-lock enforced
-by the shell, change master password in Settings › Security & vault) · Activity Log
+by the shell, change master password in Settings › Security & vault with the current password or, if it
+was lost, the recovery key; only the password wrap changes, so the recovery key, sealed
+secrets and the activity log stay as they are) · Activity Log
 (`#/activity`: paged, filtered by kind/profile/date, chain status from the unlock check,
 CSV export with a warning) · Settings (`#/settings/<section>`: general, security & vault,
 engine path, data, appearance, privacy with the health-check IP echo URL, about).

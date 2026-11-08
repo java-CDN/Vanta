@@ -17,20 +17,20 @@ function ChangePassword() {
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const save = async () => {
     setErr('');
-    if (!o) return setErr('Enter your current password.');
+    if (!o) return setErr('Enter your current password or your recovery key.');
     if (n.length < 12) return setErr('New password needs at least 12 characters.');
     if (n !== n2) return setErr('The new passwords do not match.');
     setBusy(true);
     try { await a.b.changePassword(o, n); a.closeModal(); a.toast('Master password changed', 'ok', 'key'); }
-    catch (e) { setErr((e as { kind?: string }).kind === 'crypto' ? 'Current password is not correct.' : errorText(e)); setBusy(false); }
+    catch (e) { setErr((e as { kind?: string }).kind === 'crypto' ? 'That is not the current password or the recovery key.' : errorText(e)); setBusy(false); }
   };
   return <>
     <div className="mb"><div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="field"><label htmlFor="cpOld">Current password</label><input className="inp" type="password" id="cpOld" autoComplete="current-password" value={o} onChange={e => setO(e.target.value)} /></div>
+      <div className="field"><label htmlFor="cpOld">Current password or recovery key</label><input className="inp" type="password" id="cpOld" autoComplete="current-password" value={o} onChange={e => setO(e.target.value)} /><span className="dim" style={{ fontSize: 11 }}>Forgot the password? Enter the recovery key instead; it keeps working after the change.</span></div>
       <div className="field"><label htmlFor="cpNew">New password</label><input className="inp" type="password" id="cpNew" autoComplete="new-password" value={n} onChange={e => setN(e.target.value)} /><StrengthBar v={n} /></div>
       <div className="field"><label htmlFor="cpNew2">Repeat new password</label><input className="inp" type="password" id="cpNew2" autoComplete="new-password" value={n2} onChange={e => setN2(e.target.value)} /></div>
       <div className="err" id="cpErr">{err}</div>
-      <div className="note"><Icon n="info" s={13} /><span>Only the vault key is re-wrapped; profiles are not re-encrypted, so this takes about a second.</span></div>
+      <div className="note"><Icon n="info" s={13} /><span>Only the vault key is re-wrapped; profiles, proxy passwords and the activity log are not re-encrypted, so this takes about a second.</span></div>
     </div></div>
     <div className="mf"><button className="btn" onClick={a.closeModal}>Cancel</button><button className="btn p" data-a="cpSave" disabled={busy} onClick={save}>{busy ? <><Spin />Re-wrapping key…</> : 'Change password'}</button></div>
   </>;

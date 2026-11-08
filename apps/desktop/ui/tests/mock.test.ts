@@ -66,4 +66,14 @@ describe('proxy import preview (vanta-proxy grammar)', () => {
     expect(r[3].line).toBe(4);
     expect(JSON.stringify(r)).not.toContain('Xk29aa');
   });
+  it('changes the master password with the current one or the recovery key', async () => {
+    const b = mockBackend({ speed: 0, fresh: true });
+    const { recovery_key } = await b.createVault('first master password');
+    await expect(b.changePassword('nope', 'second master password')).rejects.toMatchObject({ kind: 'crypto' });
+    await b.changePassword('first master password', 'second master password');
+    await b.changePassword(recovery_key.toLowerCase().replace(/-/g, ''), 'third master password');
+    await b.lock();
+    await expect(b.unlock('second master password')).rejects.toMatchObject({ kind: 'crypto' });
+    await b.unlock('third master password');
+  });
 });

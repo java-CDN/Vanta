@@ -612,15 +612,25 @@ impl VantaApp {
         Ok(cfg.policy)
     }
 
-    /// Re-wrap the vault key under a new master password. The current password is checked
-    /// on a copy of the header, so a wrong one changes nothing.
+    /// Re-wrap the vault key under a new master password. `current` is the master
+    /// password or, after a forgotten password, the recovery key. Only the password wrap
+    /// changes: the vault key (profile keys, sealed secrets, activity-log key and head) and
+    /// the recovery wrap stay as they are, so the recovery key keeps working.
+    ///
+    /// All work happens on a copy of the vault: a wrong `current`, a refused new password
+    /// or a failed header write leaves both the file and the open vault unchanged.
     pub fn change_password(&self, current: &str, new_password: &str) -> CoreResult<()> {
         self.require_unlocked()?;
         let mut slot = lock(&self.inner.vault);
         let v = slot.as_mut().ok_or(CoreError::NotInitialized)?;
-        Vault::from_header(v.header().clone()).unlock(current)?;
-        v.change_password(new_password)?;
-        self.write_header(v)?;
+        let mut next = Vault::from_header(v.header().clone());
+        if next.unlock(current).is_err() {
+            next.unlock_with_recovery(current)
+                .map_err(|_| CoreError::Crypto)?;
+        }
+        next.change_password(new_password)?;
+        self.write_header(&next)?;
+        *v = next;
         drop(slot);
         self.log(LogKind::VaultUnlock, None, "master password changed");
         Ok(())

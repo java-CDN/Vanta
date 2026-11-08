@@ -223,7 +223,8 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     async lock() { doLock('user'); },
     async changePassword(cur, next) {
       need(); await wait(500);
-      if (password !== 'demo' ? cur !== password : !cur || cur.toLowerCase() === 'wrong') throw { kind: 'crypto' };
+      const isRecovery = !!recovery && cur.replace(/[^a-z0-9]/gi, '').toUpperCase() === recovery.replace(/-/g, '');
+      if (!isRecovery && (password !== 'demo' ? cur !== password : !cur || cur.toLowerCase() === 'wrong')) throw { kind: 'crypto' };
       if (next.length < 8) throw { kind: 'invalid', message: 'master password must have at least 8 characters' };
       password = next; pushLog('vault_unlock', null, 'master password changed');
     },
