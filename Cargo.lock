@@ -1585,6 +1585,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "h2"
+version = "0.4.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d29020232d6aa3fb1daca64c1127cf662cf97f254ae16c18c05b8ab635fc118"
+dependencies = [
+ "atomic-waker",
+ "bytes",
+ "fnv",
+ "futures-core",
+ "futures-sink",
+ "http",
+ "indexmap 2.14.2",
+ "slab",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4124,6 +4143,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
@@ -4531,6 +4551,9 @@ name = "vanta-proxy"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bytes",
+ "h2",
+ "http",
  "rand",
  "serde",
  "serde_json",

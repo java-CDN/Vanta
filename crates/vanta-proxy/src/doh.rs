@@ -6,6 +6,11 @@
 //! ([`DohRoute::ViaProxy`]), so the DoH provider sees the proxy's exit IP, not the user's.
 //! [`DohRoute::Direct`] exists only to bootstrap a proxy given by host name.
 //!
+//! Transport is HTTP/2 when the provider agrees to it by ALPN (`h2`, offered first), else
+//! HTTP/1.1. RFC 8484 section 5.2 names HTTP/2 as the minimum recommended version and
+//! some providers enforce it: Quad9 answers every HTTP/1.1 request with
+//! `505 HTTP Version Not Supported`.
+//!
 //! The provider is reached by IP literal (no bootstrap lookup) and authenticated by its
 //! certificate for the provider host name (rustls + webpki-roots). Only A records are
 //! asked for: IPv6 is blocked by Network Guard.
@@ -14,18 +19,21 @@
 
 use crate::endpoint::ProxyEndpoint;
 use crate::net::{
-    open_tunnel, tls_connect, with_timeout, BoxStream, NetError, NetResult, TargetAddr,
+    open_tunnel, tls_config, tls_connect_with, with_timeout, BoxStream, IoStream, NetError,
+    NetResult, TargetAddr,
 };
+use bytes::Bytes;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::Pin;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_rustls::rustls;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -231,14 +239,73 @@ pub(crate) fn parse_http_response(raw: &[u8]) -> NetResult<(u16, Vec<u8>)> {
     Ok((status, body))
 }
 
-/// One DoH exchange over an already-open TLS stream.
+/// Largest DoH response body accepted.
+const MAX_DOH_RESPONSE: usize = 64 * 1024;
+
+const DNS_MESSAGE: &str = "application/dns-message";
+
+/// HTTP version agreed with the provider during the TLS handshake (ALPN).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpVersion {
+    H2,
+    Http11,
+}
+
+impl HttpVersion {
+    /// `h2` means HTTP/2; `http/1.1` or no ALPN answer at all means HTTP/1.1.
+    pub(crate) fn from_alpn(proto: Option<&[u8]>) -> Self {
+        if proto == Some(b"h2".as_slice()) {
+            HttpVersion::H2
+        } else {
+            HttpVersion::Http11
+        }
+    }
+}
+
+/// rustls config for DoH: the shared roots and provider, plus ALPN `h2` then `http/1.1`.
+/// Kept apart from [`tls_config`] so the HTTP/1.1-only callers (IP echo, checks) never
+/// get HTTP/2 negotiated on them.
+pub(crate) fn doh_tls_config() -> Arc<rustls::ClientConfig> {
+    static CFG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+    CFG.get_or_init(|| {
+        let mut cfg = (*tls_config()).clone();
+        cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        Arc::new(cfg)
+    })
+    .clone()
+}
+
+/// TLS handshake with the provider; returns the stream and the agreed HTTP version.
+async fn doh_tls_connect(
+    io: BoxStream,
+    provider: &DohProvider,
+) -> NetResult<(BoxStream, HttpVersion)> {
+    let tls = tls_connect_with(io, provider.host(), doh_tls_config()).await?;
+    let version = HttpVersion::from_alpn(tls.get_ref().1.alpn_protocol());
+    Ok((Box::new(tls), version))
+}
+
+/// One DoH exchange (RFC 8484 POST) over an already-open TLS stream, in `version`.
 async fn doh_exchange(
     mut s: BoxStream,
+    version: HttpVersion,
+    provider: &DohProvider,
+    query: &[u8],
+) -> NetResult<Vec<u8>> {
+    match version {
+        HttpVersion::H2 => h2_exchange(s, provider, query).await,
+        HttpVersion::Http11 => h1_exchange(&mut *s, provider, query).await,
+    }
+}
+
+/// HTTP/1.1 exchange (providers that do not offer `h2`).
+async fn h1_exchange<S: IoStream + ?Sized>(
+    s: &mut S,
     provider: &DohProvider,
     query: &[u8],
 ) -> NetResult<Vec<u8>> {
     let head = format!(
-        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/dns-message\r\nAccept: application/dns-message\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: {DNS_MESSAGE}\r\nAccept: {DNS_MESSAGE}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         provider.path(),
         provider.host(),
         query.len()
@@ -253,7 +320,7 @@ async fn doh_exchange(
             Ok(0) => break,
             Ok(n) => {
                 raw.extend_from_slice(&buf[..n]);
-                if raw.len() > 64 * 1024 {
+                if raw.len() > MAX_DOH_RESPONSE {
                     return Err(bad("DoH response too large"));
                 }
             }
@@ -267,6 +334,67 @@ async fn doh_exchange(
         return Err(NetError::Refused(status));
     }
     Ok(body)
+}
+
+fn h2_err(e: h2::Error) -> NetError {
+    match e.get_io() {
+        Some(io) => NetError::Io(io.kind().to_string()),
+        None => NetError::Protocol(format!("HTTP/2: {e}")),
+    }
+}
+
+/// HTTP/2 exchange: one stream on a fresh connection (no server push). The connection
+/// task is dropped as soon as the response body is read or the exchange fails.
+async fn h2_exchange<S: IoStream + 'static>(
+    s: S,
+    provider: &DohProvider,
+    query: &[u8],
+) -> NetResult<Vec<u8>> {
+    let (client, conn) = h2::client::Builder::new()
+        .enable_push(false)
+        .handshake::<_, Bytes>(s)
+        .await
+        .map_err(h2_err)?;
+    let driver = tokio::spawn(conn);
+    let result = h2_request(client, provider, query).await;
+    driver.abort();
+    result
+}
+
+async fn h2_request(
+    client: h2::client::SendRequest<Bytes>,
+    provider: &DohProvider,
+    query: &[u8],
+) -> NetResult<Vec<u8>> {
+    use http::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE};
+    let mut client = client.ready().await.map_err(h2_err)?;
+    let req = http::Request::builder()
+        .method(http::Method::POST)
+        .uri(format!("https://{}{}", provider.host(), provider.path()))
+        .header(CONTENT_TYPE, DNS_MESSAGE)
+        .header(ACCEPT, DNS_MESSAGE)
+        .header(CONTENT_LENGTH, query.len())
+        .body(())
+        .map_err(|_| bad("invalid DoH URL"))?;
+    let (response, mut send) = client.send_request(req, false).map_err(h2_err)?;
+    send.send_data(Bytes::copy_from_slice(query), true)
+        .map_err(h2_err)?;
+    let response = response.await.map_err(h2_err)?;
+    let status = response.status().as_u16();
+    let mut body = response.into_body();
+    let mut out = Vec::new();
+    while let Some(chunk) = body.data().await {
+        let chunk = chunk.map_err(h2_err)?;
+        let _ = body.flow_control().release_capacity(chunk.len());
+        out.extend_from_slice(&chunk);
+        if out.len() > MAX_DOH_RESPONSE {
+            return Err(bad("DoH response too large"));
+        }
+    }
+    if status != 200 {
+        return Err(NetError::Refused(status));
+    }
+    Ok(out)
 }
 
 /// How DoH requests reach the provider.
@@ -322,8 +450,8 @@ impl DohResolver {
                     open_tunnel(proxy, *addr, &TargetAddr::Ip(target), self.timeout).await?
                 }
             };
-            let tls = tls_connect(raw, self.provider.host()).await?;
-            doh_exchange(tls, &self.provider, &query).await
+            let (tls, version) = doh_tls_connect(raw, &self.provider).await?;
+            doh_exchange(tls, version, &self.provider, &query).await
         })
         .await?;
         let (ips, ttl) = parse_response(&body, id)?;
@@ -410,5 +538,251 @@ mod tests {
         assert_eq!(DohProvider::Google.host(), "dns.google");
         assert_eq!(DohProvider::Quad9.ip().to_string(), "9.9.9.9");
         assert_eq!(DohProvider::Cloudflare.path(), "/dns-query");
+    }
+
+    #[test]
+    fn alpn_selects_version() {
+        assert_eq!(HttpVersion::from_alpn(Some(b"h2")), HttpVersion::H2);
+        assert_eq!(
+            HttpVersion::from_alpn(Some(b"http/1.1")),
+            HttpVersion::Http11
+        );
+        assert_eq!(HttpVersion::from_alpn(None), HttpVersion::Http11);
+    }
+
+    #[test]
+    fn doh_offers_h2_first_and_shared_config_stays_http11() {
+        assert_eq!(
+            doh_tls_config().alpn_protocols,
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+        );
+        // IP echo / checks speak HTTP/1.1 only: they must never negotiate h2.
+        assert!(tls_config().alpn_protocols.is_empty());
+    }
+
+    /// Minimal in-process HTTP/2 DoH server: checks the request, answers `status` with
+    /// `answer` (a DNS message for `id`) split in two DATA frames.
+    async fn h2_server(io: tokio::io::DuplexStream, status: u16, body: Vec<u8>) {
+        let mut conn = h2::server::handshake(io).await.unwrap();
+        while let Some(req) = conn.accept().await {
+            let Ok((req, mut respond)) = req else { break };
+            let body = body.clone();
+            tokio::spawn(async move {
+                assert_eq!(req.method(), http::Method::POST);
+                assert_eq!(req.uri().path(), "/dns-query");
+                assert_eq!(req.uri().authority().unwrap().as_str(), "dns.quad9.net");
+                assert_eq!(req.headers()["content-type"], DNS_MESSAGE);
+                assert_eq!(req.headers()["accept"], DNS_MESSAGE);
+                let mut rb = req.into_body();
+                let mut got = Vec::new();
+                while let Some(c) = rb.data().await {
+                    let c = c.unwrap();
+                    let _ = rb.flow_control().release_capacity(c.len());
+                    got.extend_from_slice(&c);
+                }
+                assert_eq!(&got[12..], b"\x07example\x04test\x00\x00\x01\x00\x01");
+                let resp = http::Response::builder()
+                    .status(status)
+                    .header("content-type", DNS_MESSAGE)
+                    .body(())
+                    .unwrap();
+                let mut send = respond.send_response(resp, false).unwrap();
+                let mid = body.len() / 2;
+                send.send_data(Bytes::copy_from_slice(&body[..mid]), false)
+                    .unwrap();
+                send.send_data(Bytes::copy_from_slice(&body[mid..]), true)
+                    .unwrap();
+            });
+        }
+    }
+
+    #[tokio::test]
+    async fn h2_exchange_round_trip() {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        let reply = answer(0x1234, &[[203, 0, 113, 9]], 120);
+        tokio::spawn(h2_server(server, 200, reply.clone()));
+        let q = build_query(0x1234, "example.test").unwrap();
+        let body = h2_exchange(client, &DohProvider::Quad9, &q).await.unwrap();
+        assert_eq!(body, reply);
+        let (ips, ttl) = parse_response(&body, 0x1234).unwrap();
+        assert_eq!((ips, ttl), (vec![Ipv4Addr::new(203, 0, 113, 9)], 120));
+    }
+
+    #[tokio::test]
+    async fn h2_exchange_non_200_is_refused() {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(h2_server(server, 400, b"bad".to_vec()));
+        let q = build_query(1, "example.test").unwrap();
+        assert_eq!(
+            h2_exchange(client, &DohProvider::Quad9, &q).await,
+            Err(NetError::Refused(400))
+        );
+    }
+
+    #[tokio::test]
+    async fn h2_exchange_caps_response_size() {
+        let (client, server) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(h2_server(server, 200, vec![0u8; MAX_DOH_RESPONSE + 10]));
+        let q = build_query(1, "example.test").unwrap();
+        assert!(matches!(
+            h2_exchange(client, &DohProvider::Quad9, &q).await,
+            Err(NetError::Protocol(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn h2_exchange_rejects_non_h2_peer() {
+        // A peer that answers in HTTP/1.1 (no h2 preface) fails cleanly, not hangs.
+        let (client, mut server) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+            let _ = server.read(&mut buf).await;
+            let _ = server
+                .write_all(b"HTTP/1.1 505 HTTP Version Not Supported\r\nConnection: close\r\n\r\n")
+                .await;
+        });
+        let q = build_query(1, "example.test").unwrap();
+        let r = with_timeout(
+            Duration::from_secs(5),
+            h2_exchange(client, &DohProvider::Quad9, &q),
+        )
+        .await;
+        assert!(r.is_err() && r != Err(NetError::Timeout), "{r:?}");
+    }
+
+    #[tokio::test]
+    async fn http11_fallback_exchange() {
+        let (client, mut server) = tokio::io::duplex(64 * 1024);
+        let reply = answer(7, &[[198, 51, 100, 1]], 60);
+        let r2 = reply.clone();
+        tokio::spawn(async move {
+            let mut req = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !req.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = server.read(&mut buf).await.unwrap();
+                req.extend_from_slice(&buf[..n]);
+            }
+            let head = String::from_utf8_lossy(&req).to_string();
+            assert!(head.starts_with("POST /dns-query HTTP/1.1\r\nHost: cloudflare-dns.com\r\n"));
+            let mut resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {DNS_MESSAGE}\r\nContent-Length: {}\r\n\r\n",
+                r2.len()
+            )
+            .into_bytes();
+            resp.extend_from_slice(&r2);
+            server.write_all(&resp).await.unwrap();
+        });
+        let q = build_query(7, "example.test").unwrap();
+        let s: BoxStream = Box::new(client);
+        let body = doh_exchange(s, HttpVersion::Http11, &DohProvider::Cloudflare, &q)
+            .await
+            .unwrap();
+        assert_eq!(body, reply);
+    }
+
+    /// Live: resolves through each built-in provider over the real internet (direct route).
+    /// Run with `cargo test -p vanta-proxy live_doh -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "needs internet"]
+    async fn live_doh_all_providers() {
+        for p in [
+            DohProvider::Cloudflare,
+            DohProvider::Google,
+            DohProvider::Quad9,
+        ] {
+            // ALPN outcome, for the record (Quad9 requires h2).
+            let tcp = TcpStream::connect(SocketAddr::new(p.ip(), 443))
+                .await
+                .unwrap();
+            let (_, version) = doh_tls_connect(Box::new(tcp), &p).await.unwrap();
+            let r = DohResolver::new(p.clone(), DohRoute::Direct, Duration::from_secs(10));
+            let ips = r.resolve("example.com").await;
+            println!("{:?}: ALPN {:?}, example.com -> {:?}", p, version, ips);
+            assert_eq!(version, HttpVersion::H2, "{p:?}");
+            assert!(!ips.unwrap().is_empty(), "{p:?}");
+        }
+    }
+
+    /// Live: the HTTP/1.1 path still works where the provider allows it, and Quad9's
+    /// refusal of HTTP/1.1 is the 505 this module works around.
+    #[tokio::test]
+    #[ignore = "needs internet"]
+    async fn live_doh_http11_path() {
+        let q = build_query(0x4242, "example.com").unwrap();
+        for (p, want_ok) in [
+            (DohProvider::Cloudflare, true),
+            (DohProvider::Google, true),
+            (DohProvider::Quad9, false),
+        ] {
+            let tcp = TcpStream::connect(SocketAddr::new(p.ip(), 443))
+                .await
+                .unwrap();
+            let tls = crate::net::tls_connect(tcp, p.host()).await.unwrap();
+            let r = doh_exchange(tls, HttpVersion::Http11, &p, &q).await;
+            println!("{p:?} over HTTP/1.1: {:?}", r.as_ref().map(|b| b.len()));
+            if want_ok {
+                assert!(parse_response(&r.unwrap(), 0x4242).is_ok());
+            } else {
+                assert_eq!(r, Err(NetError::Refused(505)));
+            }
+        }
+    }
+
+    /// Live, through an HTTP CONNECT proxy (the production route): set
+    /// `VANTA_LIVE_PROXY=http://user:pass@host:port` (percent-encoded login), then
+    /// `cargo test -p vanta-proxy live_doh_via_proxy -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "needs internet and VANTA_LIVE_PROXY"]
+    async fn live_doh_via_proxy() {
+        let Ok(url) = std::env::var("VANTA_LIVE_PROXY") else {
+            println!("VANTA_LIVE_PROXY not set: skipped");
+            return;
+        };
+        let rest = url.strip_prefix("http://").expect("http:// proxy URL");
+        let (login, hostport) = rest.rsplit_once('@').expect("user:pass@host:port");
+        let (user, pass) = login.split_once(':').expect("user:pass");
+        let unpct = |v: &str| {
+            let b = v.as_bytes();
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'%' && i + 2 < b.len() {
+                    out.push(u8::from_str_radix(&v[i + 1..i + 3], 16).unwrap());
+                    i += 3;
+                } else {
+                    out.push(b[i]);
+                    i += 1;
+                }
+            }
+            String::from_utf8(out).unwrap()
+        };
+        let (host, port) = hostport.rsplit_once(':').unwrap();
+        let port: u16 = port.parse().unwrap();
+        let proxy = ProxyEndpoint::new(
+            crate::endpoint::ProxyScheme::Http,
+            host,
+            port,
+            Some(crate::endpoint::Credentials::new(unpct(user), unpct(pass))),
+        );
+        // Test harness only: the proxy host is resolved with the system resolver here.
+        let addr = tokio::net::lookup_host((host, port))
+            .await
+            .unwrap()
+            .find(|a| a.is_ipv4())
+            .unwrap();
+        for p in [
+            DohProvider::Cloudflare,
+            DohProvider::Google,
+            DohProvider::Quad9,
+        ] {
+            let route = DohRoute::ViaProxy {
+                proxy: proxy.clone(),
+                addr,
+            };
+            let r = DohResolver::new(p.clone(), route, Duration::from_secs(15));
+            let ips = r.resolve("example.com").await;
+            println!("{p:?} via proxy: example.com -> {ips:?}");
+            assert!(!ips.unwrap().is_empty(), "{p:?}");
+        }
     }
 }

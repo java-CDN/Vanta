@@ -113,22 +113,41 @@ pub(crate) fn tls_config() -> Arc<rustls::ClientConfig> {
     .clone()
 }
 
-/// TLS client handshake over `io` for `server_name` (DNS name or IP literal).
+/// Parse a TLS server name (DNS name or IP literal).
+pub(crate) fn server_name(server_name: &str) -> NetResult<ServerName<'static>> {
+    match server_name.parse::<IpAddr>() {
+        Ok(ip) => Ok(ServerName::IpAddress(ip.into())),
+        Err(_) => ServerName::try_from(server_name.to_string())
+            .map_err(|_| NetError::Protocol("invalid TLS server name".into())),
+    }
+}
+
+/// TLS client handshake over `io` with an explicit client config; the stream keeps its
+/// type so callers can read the negotiated ALPN protocol.
+pub(crate) async fn tls_connect_with<S>(
+    io: S,
+    server_name: &str,
+    cfg: Arc<rustls::ClientConfig>,
+) -> NetResult<tokio_rustls::client::TlsStream<S>>
+where
+    S: IoStream + 'static,
+{
+    let name = self::server_name(server_name)?;
+    tokio_rustls::TlsConnector::from(cfg)
+        .connect(name, io)
+        .await
+        .map_err(|e| NetError::Protocol(format!("TLS: {}", e.kind())))
+}
+
+/// TLS client handshake over `io` for `server_name` (DNS name or IP literal). No ALPN:
+/// callers speak HTTP/1.1 (or a proxy protocol) on the stream.
 pub(crate) async fn tls_connect<S>(io: S, server_name: &str) -> NetResult<BoxStream>
 where
     S: IoStream + 'static,
 {
-    let name = match server_name.parse::<IpAddr>() {
-        Ok(ip) => ServerName::IpAddress(ip.into()),
-        Err(_) => ServerName::try_from(server_name.to_string())
-            .map_err(|_| NetError::Protocol("invalid TLS server name".into()))?,
-    };
-    let connector = tokio_rustls::TlsConnector::from(tls_config());
-    let s = connector
-        .connect(name, io)
-        .await
-        .map_err(|e| NetError::Protocol(format!("TLS: {}", e.kind())))?;
-    Ok(Box::new(s))
+    Ok(Box::new(
+        tls_connect_with(io, server_name, tls_config()).await?,
+    ))
 }
 
 // ---- SOCKS5 -------------------------------------------------------------------------
