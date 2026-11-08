@@ -107,13 +107,24 @@ jobs:
           --tauri-config apps/desktop/src-tauri/tauri.engine.json
       - name: tauri build (NSIS, unsigned)
         shell: bash
+        # The bundler downloads NSIS from GitHub releases, which sometimes answers 504:
+        # retry (the Rust build is reused) a few times before failing.
         run: |
+          args=(--bundles nsis)
           if [ -f src-tauri/tauri.engine.json ]; then
             echo "bundling the staged engine"
-            npx tauri build --bundles nsis --config src-tauri/tauri.engine.json
-          else
-            npx tauri build --bundles nsis
+            args+=(--config src-tauri/tauri.engine.json)
           fi
+          for attempt in 1 2 3 4; do
+            if npx tauri build "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"; then
+              exit 0
+            fi
+            if [ "$attempt" = 4 ] || ! grep -q 'http status' "$RUNNER_TEMP/tauri-build.log"; then
+              exit 1
+            fi
+            echo "::warning::tauri build download failed (attempt $attempt), retrying in $((attempt * 45)) s"
+            sleep $((attempt * 45))
+          done
       - name: sizes
         shell: bash
         working-directory: .
