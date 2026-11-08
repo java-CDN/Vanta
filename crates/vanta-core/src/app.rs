@@ -25,8 +25,8 @@ use vanta_log::{ActivityLog, LogFilter, LogKind};
 use vanta_proxy::state::{now_ms, MAX_CHECK_AGE_MS};
 use vanta_proxy::{
     check_assignment, parse_line, parse_list, probe, resolve_upstream, Credentials, DohProvider,
-    EchoUrl, GuardPolicy, ProxyEndpoint, ProxyScheme, ProxyState, Relay, RelayConfig, RelayEvent,
-    Resolver, DEFAULT_HEARTBEAT,
+    EchoUrl, GuardPolicy, ProviderPreset, ProxyEndpoint, ProxyScheme, ProxyState, Relay,
+    RelayConfig, RelayEvent, Resolver, DEFAULT_HEARTBEAT,
 };
 use vanta_store::{HealthSummary, ProfileMeta, ProfileSecrets, ProxyRecord, Store};
 use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus, VantaError};
@@ -745,6 +745,12 @@ impl VantaApp {
             label: r.label.clone(),
             state,
             display,
+            // A preset that no longer parses (newer/older format) is shown as none; the
+            // stored username keeps working.
+            preset: r
+                .preset
+                .as_deref()
+                .and_then(|j| serde_json::from_str(j).ok()),
         }
     }
 
@@ -779,7 +785,144 @@ impl VantaApp {
             label: String::new(),
             state: serde_json::to_string(&ProxyState::Unknown).expect("state serializes"),
             created_ms: now_ms(),
+            preset: None,
         })
+    }
+
+    /// Check a form and work out the username (built from the preset when there is one).
+    fn proxy_form(form: &ProxyForm) -> CoreResult<(ProxyEndpoint, String, Option<ProviderPreset>)> {
+        let label = form.label.trim().to_string();
+        if label.chars().count() > 64 {
+            return Err(CoreError::Invalid {
+                message: "label is longer than 64 characters".into(),
+            });
+        }
+        let (username, preset) = match &form.preset {
+            Some(p) => {
+                let p = p.clone().normalized()?;
+                (Some(p.username()?), Some(p))
+            }
+            None => {
+                let u = form
+                    .username
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|u| !u.is_empty())
+                    .map(str::to_string);
+                if let Some(u) = &u {
+                    if u.len() > 255 || u.chars().any(|c| c.is_control()) {
+                        return Err(CoreError::Invalid {
+                            message: "username is longer than 255 bytes or has control characters"
+                                .into(),
+                        });
+                    }
+                }
+                (u, None)
+            }
+        };
+        let ep = ProxyEndpoint::checked(
+            form.scheme,
+            &form.host,
+            form.port,
+            username.map(|u| Credentials::new(u, "")),
+        )?;
+        Ok((ep, label, preset))
+    }
+
+    /// Normalise a provider preset (a fresh session key when it has none) and build its
+    /// username, for the form's live preview. Needs no vault: a preset holds no secret.
+    pub fn preview_preset(&self, preset: ProviderPreset) -> CoreResult<PresetPreview> {
+        let preset = preset.normalized()?;
+        let username = preset.username()?;
+        Ok(PresetPreview { preset, username })
+    }
+
+    /// Add one proxy from the form. A non-empty `password` is sealed into the vault; the
+    /// row keeps only its reference.
+    pub fn add_proxy(&self, form: &ProxyForm, password: Option<&str>) -> CoreResult<ProxyView> {
+        self.require_unlocked()?;
+        let (ep, label, preset) = Self::proxy_form(form)?;
+        let password = password.filter(|p| !p.is_empty());
+        if password.is_some() && ep.auth.is_none() {
+            return Err(CoreError::Invalid {
+                message: "a password needs a username".into(),
+            });
+        }
+        let ep = ProxyEndpoint {
+            auth: ep
+                .auth
+                .map(|c| Credentials::new(c.username, password.unwrap_or(""))),
+            ..ep
+        };
+        let mut rec = self.proxy_record(&ep)?;
+        rec.label = label;
+        rec.preset = preset
+            .as_ref()
+            .map(|p| serde_json::to_string(p).expect("preset serializes"));
+        lock(&self.inner.store).insert_proxies(std::slice::from_ref(&rec))?;
+        Ok(Self::proxy_view(&rec))
+    }
+
+    /// Change a proxy. `password`: `None` keeps the one in the vault, `Some("")` removes it,
+    /// anything else replaces it. A new endpoint, username or password resets the check
+    /// state and drops health runs made through the proxy.
+    pub fn edit_proxy(
+        &self,
+        proxy_id: &str,
+        form: &ProxyForm,
+        password: Option<&str>,
+    ) -> CoreResult<ProxyView> {
+        self.require_unlocked()?;
+        let old = lock(&self.inner.store).get_proxy(proxy_id)?;
+        let (ep, label, preset) = Self::proxy_form(form)?;
+        let username = ep.auth.map(|c| c.username);
+        let secret_ref = match (password, &username) {
+            (_, None) => None,
+            (None, Some(_)) => old.secret_ref.clone(),
+            (Some(""), Some(_)) => None,
+            (Some(pw), Some(_)) => {
+                let r = format!("proxy/{proxy_id}");
+                let blob = self.seal(&r, pw.as_bytes())?;
+                lock(&self.inner.store).put_secret(&r, &blob)?;
+                Some(r)
+            }
+        };
+        if password.is_some_and(|p| !p.is_empty()) && username.is_none() {
+            return Err(CoreError::Invalid {
+                message: "a password needs a username".into(),
+            });
+        }
+        let login_changed = password.is_some() || secret_ref != old.secret_ref;
+        let endpoint_changed = (ep.scheme.as_str(), ep.host.as_str(), ep.port, &username)
+            != (
+                old.scheme.as_str(),
+                old.host.as_str(),
+                old.port,
+                &old.username,
+            );
+        let rec = ProxyRecord {
+            scheme: ep.scheme.as_str().into(),
+            host: ep.host.clone(),
+            port: ep.port,
+            username,
+            secret_ref,
+            label,
+            state: if login_changed || endpoint_changed {
+                serde_json::to_string(&ProxyState::Unknown).expect("state serializes")
+            } else {
+                old.state.clone()
+            },
+            preset: preset.map(|p| serde_json::to_string(&p).expect("preset serializes")),
+            ..old
+        };
+        {
+            let mut store = lock(&self.inner.store);
+            store.update_proxy(&rec)?;
+            if login_changed {
+                store.clear_proxy_health(proxy_id)?;
+            }
+        }
+        Ok(Self::proxy_view(&rec))
     }
 
     /// Bulk import (F04 grammar). Lines without a scheme take `default_scheme`.

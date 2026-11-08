@@ -7,7 +7,8 @@ import type * as T from './types';
 import { COUNTRIES, DEVICES, ENGINE, FONTS_WIN10, FONTS_WIN11, GPUS, PROFILE_SEED, PROXY_SEED, hashStr } from './demo';
 import { CHECKS } from '../lib/catalog';
 import { matches, parse, SearchError } from '../lib/search';
-import { parseList } from '../lib/proxyparse';
+import { parseLine, parseList } from '../lib/proxyparse';
+import { buildPreset } from '../lib/presets';
 import { echoUrlProblem } from '../lib/echo';
 
 export interface MockOptions {
@@ -59,7 +60,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     const host = ip;
     const checked = now - (2 + (hashStr(name) % 50)) * 60000;
     const state: T.ProxyState = kind === 'offline' ? { state: 'offline', checked_ms: checked, reason: 'timeout' } : { state: 'online', checked_ms: checked, latency_ms: lat ?? 0 };
-    return { cc, ip, latency: lat, kind, view: { id: mkId('px'), scheme, host, port, username: user, has_password: true, label: name, state, display: `${scheme}://${user}:***@${host}:${port}` } };
+    return { cc, ip, latency: lat, kind, view: { id: mkId('px'), scheme, host, port, username: user, has_password: true, label: name, state, display: `${scheme}://${user}:***@${host}:${port}`, preset: null } };
   });
   const pxByLabel = (l: string) => proxies.find(p => p.view.label === l)!;
   const profiles: MProfile[] = PROFILE_SEED.map(([name, folder, tags, os, px, health, status, ago, device, geo, notes]) => {
@@ -172,6 +173,18 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       r.level = 'fail'; r.message = `Timezone ${geo.tz} does not match exit country ${proxy.cc}`;
     }
     return v;
+  };
+  const display = (v: T.ProxyView) => v.username ? `${v.scheme}://${v.username}:***@${v.host}:${v.port}` : `${v.scheme}://${v.host}:${v.port}`;
+  /** Like vanta-core `proxy_form`: valid host/port, label ≤ 64, username built from the preset. */
+  const checkForm = async (form: T.ProxyForm) => {
+    const host = form.host.trim().replace(/^\[|\]$/g, '');
+    const r = parseLine(`${form.scheme}://${host.includes(':') ? `[${host}]` : host}:${form.port}`, 1, form.scheme);
+    if (!r || r.err) throw { kind: 'invalid', message: r?.err ?? 'missing host' };
+    const label = form.label.trim();
+    if ([...label].length > 64) throw { kind: 'invalid', message: 'label is longer than 64 characters' };
+    let username = form.username?.trim() || null; let preset: T.ProviderPreset | null = null;
+    if (form.preset) { const b = await buildPreset(form.preset); preset = b.preset; username = b.username; }
+    return { scheme: form.scheme, host: r.host!.toLowerCase(), port: r.port!, label, username, preset };
   };
   const sharedWith = (profileId: string, proxyId: string) => {
     const t = px(proxyId).view;
@@ -289,12 +302,35 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       const rows = parseList(text, def); const added: T.ProxyView[] = []; const errors: T.ImportResult['errors'] = [];
       for (const r of rows) {
         if (r.err) { errors.push({ line: r.line, message: r.err }); continue; }
-        const v: T.ProxyView = { id: mkId('ipx'), scheme: r.scheme!, host: r.host!, port: r.port!, username: r.user ?? null, has_password: !!r.hasPassword, label: '', state: { state: 'unknown' }, display: r.user ? `${r.scheme}://${r.user}:***@${r.host}:${r.port}` : `${r.scheme}://${r.host}:${r.port}` };
+        const v: T.ProxyView = { id: mkId('ipx'), scheme: r.scheme!, host: r.host!, port: r.port!, username: r.user ?? null, has_password: !!r.hasPassword, label: '', state: { state: 'unknown' }, display: r.user ? `${r.scheme}://${r.user}:***@${r.host}:${r.port}` : `${r.scheme}://${r.host}:${r.port}`, preset: null };
         const keys = Object.keys(COUNTRIES);
         proxies.push({ view: v, cc: keys[hashStr(r.host!) % keys.length], ip: r.host!, latency: 40 + (hashStr(r.host!) % 90), kind: 'ok' });
         added.push(clone(v));
       }
       return { added, errors };
+    },
+    async previewPreset(preset) { return buildPreset(preset); },
+    async addProxy(form, password) {
+      need(); await wait(120);
+      const f = await checkForm(form);
+      if (password && !f.username) throw { kind: 'invalid', message: 'a password needs a username' };
+      const v: T.ProxyView = { id: mkId('apx'), ...f, has_password: !!password, state: { state: 'unknown' }, display: '' };
+      v.display = display(v);
+      const keys = Object.keys(COUNTRIES);
+      proxies.push({ view: v, cc: keys[hashStr(v.host) % keys.length], ip: /^\d+\.\d+\.\d+\.\d+$/.test(v.host) ? v.host : `198.51.100.${hashStr(v.host) % 250}`, latency: 40 + (hashStr(v.host) % 90), kind: 'ok' });
+      return clone(v);
+    },
+    async editProxy(id, form, password) {
+      need(); await wait(120); const x = px(id);
+      const f = await checkForm(form);
+      if (password && !f.username) throw { kind: 'invalid', message: 'a password needs a username' };
+      const old = x.view;
+      const hasPw = !f.username ? false : password === null ? old.has_password : password !== '';
+      const changed = password !== null || old.scheme !== f.scheme || old.host !== f.host || old.port !== f.port || old.username !== f.username || hasPw !== old.has_password;
+      x.view = { ...old, ...f, has_password: hasPw, state: changed ? { state: 'unknown' } : old.state, display: '' };
+      x.view.display = display(x.view);
+      if (changed) profiles.forEach(p => { if (p.meta.proxy_id === id) p.health = null; });
+      return clone(x.view);
     },
     async deleteProxy(id) {
       need(); const i = proxies.findIndex(p => p.view.id === id); if (i < 0) throw { kind: 'not_found', message: `proxy ${id}` };

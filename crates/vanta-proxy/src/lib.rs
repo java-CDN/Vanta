@@ -39,6 +39,9 @@ pub use doh::{DohProvider, DohResolver, DohRoute, Resolver};
 pub use echo::{EchoUrl, DEFAULT_IP_ECHO_URL};
 pub use endpoint::{parse_line, parse_list, Credentials, ImportReport, ProxyEndpoint, ProxyScheme};
 pub use guard::{GuardPolicy, KillSwitch, WebRtcPolicy};
-pub use provider::{build_username, session_id, Provider, SessionParams};
+pub use provider::{
+    build_username, build_username_for, session_id, session_id_for, Provider, ProviderPreset,
+    ProviderSpec, SessionKey, SessionParams, PROVIDER_PRESETS_VERIFIED_LIVE,
+};
 pub use relay::{resolve_upstream, GuardState, Relay, RelayConfig, RelayEvent, DEFAULT_HEARTBEAT};
 pub use state::{probe, udp_associate_probe, LaunchBlock, OfflineReason, ProxyState, UdpSupport};

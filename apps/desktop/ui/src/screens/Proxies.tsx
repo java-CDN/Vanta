@@ -5,6 +5,8 @@ import { CC, Empty, Icon, OsBadge, Seg, Spin } from '../components/ui';
 import type * as T from '../api/types';
 import { offlineReason, proxyName, proxyStatus, relDay, schemeLabel } from '../lib/format';
 import { parseList } from '../lib/proxyparse';
+import { emptyPreset, fitTo, PRESETS_NOTE, PROVIDERS, spec } from '../lib/presets';
+import { errorText } from '../api/backend';
 import { assignWithWarning, ProxyStatus } from './Profiles';
 
 function ProxyTabs({ active }: { active: 'proxies' | 'geo' }) {
@@ -24,8 +26,111 @@ async function testOne(a: AppCtx, id: string, quiet = false) {
   return v;
 }
 
+
+/** Add / edit form for one proxy: plain login or a provider username preset. The password
+ *  is handed to the backend once and goes into the vault; it is never shown again. */
+function ProxyFormBody({ a, initial, onSaved }: { a: AppCtx; initial?: T.ProxyView; onSaved: (v: T.ProxyView) => void }) {
+  const [mode, setMode] = useState<'preset' | 'plain'>(initial ? (initial.preset ? 'preset' : 'plain') : 'preset');
+  const [scheme, setScheme] = useState<T.ProxyScheme>(initial?.scheme ?? 'socks5');
+  const [host, setHost] = useState(initial?.host ?? '');
+  const [port, setPort] = useState(initial ? String(initial.port) : '');
+  const [label, setLabel] = useState(initial?.label ?? '');
+  const [username, setUsername] = useState(initial && !initial.preset ? initial.username ?? '' : '');
+  const [password, setPassword] = useState('');
+  const [removePw, setRemovePw] = useState(false);
+  const [preset, setPreset] = useState<T.ProviderPreset>(initial?.preset ?? emptyPreset());
+  const [preview, setPreview] = useState<{ username?: string; err?: string }>({});
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sp = spec(preset.provider);
+  const prm = preset.params;
+  const setP = (patch: Partial<T.SessionParams>) => setPreset(p => ({ ...p, params: { ...p.params, ...patch } }));
+  const num = (v: string) => (v.trim() === '' ? null : Number(v));
+  useEffect(() => {
+    if (mode !== 'preset') return;
+    if (!preset.base_user.trim()) { setPreview({ err: `Enter the base username (${sp.baseHint})` }); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      a.b.previewPreset(preset).then(r => {
+        if (!live) return;
+        setPreview({ username: r.username });
+        // Keep the session key the backend chose for a new preset.
+        if (!preset.session_key) setPreset(p => (p.session_key ? p : { ...p, session_key: r.preset.session_key }));
+      }).catch(e => { if (live) setPreview({ err: errorText(e) }); });
+    }, 150);
+    return () => { live = false; clearTimeout(t); };
+  }, [mode, preset, a.b, sp.baseHint]);
+  const save = async () => {
+    setErr('');
+    const p = Number(port);
+    if (!host.trim()) return setErr('Enter the proxy host (the gateway address from your provider).');
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return setErr('Port must be a number from 1 to 65535.');
+    if (mode === 'preset' && preview.err) return setErr(preview.err);
+    const form: T.ProxyForm = { scheme, host: host.trim(), port: p, label: label.trim(), username: mode === 'plain' ? (username.trim() || null) : null, preset: mode === 'preset' ? preset : null };
+    setBusy(true);
+    try {
+      const v = initial ? await a.b.editProxy(initial.id, form, removePw ? '' : (password || null)) : await a.b.addProxy(form, password || null);
+      setPassword('');
+      a.closeModal();
+      onSaved(v);
+    } catch (e) { setErr(errorText(e)); setBusy(false); }
+  };
+  const lbl = { fontSize: 11 } as const;
+  return <>
+    <div className="mb"><div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Seg value={mode} onChange={setMode} name="Username" options={[['preset', 'Provider preset'], ['plain', 'Plain login']]} />
+      <div className="row" style={{ gap: 10 }}>
+        <div className="field" style={{ width: 110 }}><label htmlFor="pfScheme">Type</label><select className="inp" id="pfScheme" value={scheme} onChange={e => setScheme(e.target.value as T.ProxyScheme)}><option value="socks5">SOCKS5</option><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
+        <div className="field" style={{ flex: 1 }}><label htmlFor="pfHost">Host (gateway)</label><input className="inp mono" id="pfHost" value={host} spellCheck={false} placeholder="gate.provider.example" onChange={e => setHost(e.target.value)} /></div>
+        <div className="field" style={{ width: 90 }}><label htmlFor="pfPort">Port</label><input className="inp mono" id="pfPort" inputMode="numeric" value={port} placeholder="1080" onChange={e => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))} /></div>
+      </div>
+      {mode === 'preset' ? <>
+        <div className="row" style={{ gap: 10 }}>
+          <div className="field" style={{ width: 150 }}><label htmlFor="pfProv">Provider</label><select className="inp" id="pfProv" value={preset.provider} onChange={e => setPreset(p => fitTo(p, e.target.value as T.Provider))}>{PROVIDERS.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
+          <div className="field" style={{ flex: 1 }}><label htmlFor="pfBase">Base username (as in the provider dashboard)</label><input className="inp mono" id="pfBase" value={preset.base_user} spellCheck={false} placeholder={sp.baseHint} onChange={e => setPreset(p => ({ ...p, base_user: e.target.value }))} /></div>
+        </div>
+        <div className="row" style={{ gap: 10 }}>
+          <div className="field" style={{ width: 80 }}><label htmlFor="pfCc">Country</label><input className="inp mono" id="pfCc" maxLength={2} value={prm.country ?? ''} placeholder="US" onChange={e => setP({ country: e.target.value.replace(/[^a-z]/gi, '').toUpperCase() || null })} /></div>
+          <div className="field" style={{ flex: 1 }}><label htmlFor="pfCity">City {sp.city ? '' : `(not in the ${sp.name} grammar)`}</label><input className="inp" id="pfCity" disabled={!sp.city} value={prm.city ?? ''} placeholder={sp.city ? 'optional' : '—'} onChange={e => setP({ city: e.target.value || null })} /></div>
+          {sp.pool
+            ? <div className="field" style={{ width: 120 }}><label htmlFor="pfPool">Endpoints in plan</label><input className="inp mono" id="pfPool" inputMode="numeric" value={prm.pool_size ?? ''} onChange={e => setP({ pool_size: num(e.target.value.replace(/\D/g, '').slice(0, 6)) })} /></div>
+            : <div className="field" style={{ width: 140 }}><label htmlFor="pfTtl">Session (minutes){sp.ttl ? '' : ' n/a'}</label><input className="inp mono" id="pfTtl" inputMode="numeric" disabled={!sp.ttl} value={prm.session_ttl_min ?? ''} placeholder={sp.ttl ? 'provider default' : '—'} onChange={e => setP({ session_ttl_min: num(e.target.value.replace(/\D/g, '').slice(0, 4)) })} /></div>}
+        </div>
+        <div className="field"><label>Final username (sticky session for this entry)</label>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <div id="pfPreview" className={`inp mono ${preview.err ? 'bad' : ''}`} style={{ flex: 1, fontSize: 11.5, overflowWrap: 'anywhere', minHeight: 32, height: 'auto', padding: '6px 10px' }}>{preview.username ?? <span className="bad">{preview.err ?? '…'}</span>}</div>
+            <button className="btn s" data-a="pfRotate" title="Move this entry to a new sticky session (new exit IP)" onClick={() => setP({ rotation: prm.rotation + 1 })}><Icon n="refresh" s={13} />New session</button>
+          </div>
+          <span className="dim" style={lbl}>Session {prm.rotation + 1} · the session id is derived from a random key kept with this entry, so it stays the same across launches until you ask for a new one.</span></div>
+        <div className="note"><Icon n="info" s={13} /><span><span className="pill warn" style={{ marginRight: 6 }}>from public docs, not verified live</span>{PRESETS_NOTE}</span></div>
+      </> : <div className="field"><label htmlFor="pfUser">Username (kept as written)</label><input className="inp mono" id="pfUser" value={username} spellCheck={false} autoComplete="off" placeholder="optional" onChange={e => setUsername(e.target.value)} /></div>}
+      <div className="row" style={{ gap: 10 }}>
+        <div className="field" style={{ flex: 1 }}><label htmlFor="pfPw">Password{initial?.has_password ? ' (leave empty to keep the one in the vault)' : ''}</label><input className="inp" type="password" id="pfPw" autoComplete="new-password" disabled={removePw} value={password} placeholder={initial?.has_password ? '••••••• in vault' : 'optional'} onChange={e => setPassword(e.target.value)} /></div>
+        <div className="field" style={{ width: 160 }}><label htmlFor="pfLabel">Label</label><input className="inp" id="pfLabel" maxLength={64} value={label} placeholder="optional" onChange={e => setLabel(e.target.value)} /></div>
+      </div>
+      {initial?.has_password && <label className="row" style={{ gap: 8, fontSize: 12, alignItems: 'center' }}><input type="checkbox" id="pfRmPw" checked={removePw} onChange={e => setRemovePw(e.target.checked)} />Remove the saved password</label>}
+      <div className="err" id="pfErr">{err}</div>
+      <div className="note"><Icon n="lock" s={13} /><span>The password goes straight into the vault and is never shown again or written to the log. Changing the host, login or password resets the proxy check and the health runs made through it.</span></div>
+    </div></div>
+    <div className="mf"><button className="btn" onClick={a.closeModal}>Cancel</button><button className="btn p" id="pfOk" disabled={busy} onClick={save}>{busy ? <Spin /> : null}{initial ? 'Save proxy' : 'Add proxy'}</button></div>
+  </>;
+}
+
+function openEdit(a: AppCtx, x: T.ProxyView) {
+  a.openModal({ title: `Edit ${proxyName(x)}`, width: 680, raw: true, body: <ProxyFormBody a={a} initial={x} onSaved={async v => { await Promise.all([a.refreshProxies(), a.refreshProfiles()]); a.toast(<><b>{proxyName(v)}</b> saved{v.state.state === 'unknown' ? ' · test it before the next launch' : ''}</>, 'ok', 'check'); }} /> });
+}
+
 function openAdd(a: AppCtx, onAdded: (ids: string[]) => void) {
   function Body() {
+    const [tab, setTab] = useState<'list' | 'one'>('list');
+    const tabs = <div className="tabs" role="tablist" style={{ padding: '0 18px' }}>
+      <button role="tab" aria-selected={tab === 'list'} className={tab === 'list' ? 'on' : ''} data-id="apList" onClick={() => setTab('list')}>Paste list</button>
+      <button role="tab" aria-selected={tab === 'one'} className={tab === 'one' ? 'on' : ''} data-id="apOne" onClick={() => setTab('one')}>One proxy · provider preset</button>
+    </div>;
+    if (tab === 'one') return <>{tabs}<ProxyFormBody a={a} onSaved={async v => { await a.refreshProxies(); a.toast(<>Added <b>{proxyName(v)}</b> · testing now</>, 'ok', 'plus'); onAdded([v.id]); }} /></>;
+    return <>{tabs}<ListBody /></>;
+  }
+  function ListBody() {
     const [text, setText] = useState('');
     const [scheme, setScheme] = useState<T.ProxyScheme>('socks5');
     const [busy, setBusy] = useState(false);
@@ -65,7 +170,7 @@ function openAdd(a: AppCtx, onAdded: (ids: string[]) => void) {
       </div>
     </>;
   }
-  a.openModal({ title: 'Add proxies', width: 680, raw: true, body: <Body /> });
+  a.openModal({ title: 'Add proxies', width: 700, raw: true, body: <Body /> });
 }
 
 export function ProxiesScreen() {
@@ -115,6 +220,7 @@ export function ProxiesScreen() {
   };
   const menu = (el: HTMLElement, x: T.ProxyView) => a.openMenu(el, [
     { label: 'Test', icon: 'zap', id: 'pxTest', onClick: () => test(x.id) },
+    { label: 'Edit…', icon: 'edit', id: 'pxEdit', onClick: () => openEdit(a, x) },
     { label: 'Assign to profile…', icon: 'link', id: 'pxAssignMenu', onClick: () => { setSelId(x.id); setTimeout(() => document.getElementById('pxAssign')?.focus(), 30); } },
     { label: 'Copy endpoint', icon: 'copy', id: 'pxCopy', onClick: () => { navigator.clipboard?.writeText(`${x.host}:${x.port}`).catch(() => {}); a.toast(<>Copied {x.host}:{x.port} (password stays in the vault)</>, 'ok', 'copy'); } }, '-',
     { label: 'Delete', icon: 'trash', id: 'pxDel', danger: true, onClick: () => del(x) },
@@ -163,7 +269,8 @@ export function ProxiesScreen() {
               <div className="kv" style={{ gridTemplateColumns: '96px 1fr' }}>
                 <dt>Endpoint</dt><dd className="mono">{sel.host}:{sel.port}</dd>
                 <dt>Type</dt><dd>{schemeLabel(sel.scheme)}</dd>
-                <dt>Username</dt><dd className="mono" style={{ fontSize: 11 }}>{sel.username ?? <span className="dim">none</span>}</dd>
+                <dt>Username</dt><dd className="mono" style={{ fontSize: 11, overflowWrap: 'anywhere' }}>{sel.username ?? <span className="dim">none</span>}</dd>
+                {sel.preset && <><dt>Preset</dt><dd id="pxPreset">{spec(sel.preset.provider).name}{sel.preset.params.country ? ` · ${sel.preset.params.country}` : ''}{sel.preset.params.city ? ` · ${sel.preset.params.city}` : ''}{sel.preset.params.session_ttl_min ? ` · ${sel.preset.params.session_ttl_min} min` : ''} · session {sel.preset.params.rotation + 1} <span className="pill warn" title={PRESETS_NOTE}>not verified live</span></dd></>}
                 <dt>Password</dt><dd>{sel.has_password ? <>••••••• <span className="dim">(vault)</span></> : <span className="dim">none</span>}</dd>
                 <dt>Assigned</dt><dd>{u.length ? <>{u.map(p => <span key={p.id} className="pill acc" style={{ margin: '0 4px 2px 0' }}>{p.name}</span>)}{u.length > 1 && <div className="warn" style={{ fontSize: 11, marginTop: 3 }}>Shared by several profiles — they can be linked.</div>}</> : <span className="dim">free</span>}</dd>
               </div>
@@ -174,14 +281,14 @@ export function ProxiesScreen() {
                   try { if (await assignWithWarning(a, p, sel.id)) { await a.refreshProfiles(); a.toast(<><b>{proxyName(sel)}</b> assigned to <b>{p.name}</b> · run a health check before the next launch</>, 'ok', 'link'); } } catch (e) { a.fail(e); }
                 }}><Icon n="link" s={14} />Assign</button>
               </div>
-              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn s" disabled={t} onClick={() => test(sel.id)}><Icon n="zap" s={13} />Test</button><button className="btn s d" onClick={() => del(sel)}><Icon n="trash" s={13} />Delete</button></div>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn s" disabled={t} onClick={() => test(sel.id)}><Icon n="zap" s={13} />Test</button><button className="btn s" data-a="pxEdit" onClick={() => openEdit(a, sel)}><Icon n="edit" s={13} />Edit</button><button className="btn s d" onClick={() => del(sel)}><Icon n="trash" s={13} />Delete</button></div>
             </div>
             <div className="card"><h3>Proxy check {t && <span className="r acc"><Spin s={10} /></span>}</h3>
               {steps.map(([s, k, v], i) => <div key={s} className="step"><span className={`ic ${k === 'run' ? 'pend' : k}`} style={{ width: 18, height: 18 }}>{k === 'ok' ? '✓' : k === 'bad' ? '✕' : k === 'warn' ? '!' : k === 'run' ? <Spin s={9} style={{ borderWidth: 1.5, color: 'var(--accent2)' }} /> : ''}</span>{i + 1}. {s}<span className="r dim">{v}</span></div>)}
               <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>Exit IP and country are measured by the health check through the relay. ASN, speed, UDP and blacklist steps are not part of this build yet.</div>
             </div>
           </>}
-          <div className="card"><h3><Icon n="import" s={15} />Import</h3><div className="note"><Icon n="zap" s={13} /><span>Paste <span className="mono">host:port:user:pass</span> or <span className="mono">socks5://user:pass@host:port</span>, one per line. Provider session usernames (Bright Data, SOAX, Geonode, DataImpulse, Webshare, Thordata) are kept as written.</span></div>
+          <div className="card"><h3><Icon n="import" s={15} />Import</h3><div className="note"><Icon n="zap" s={13} /><span>Paste <span className="mono">host:port:user:pass</span> or <span className="mono">socks5://user:pass@host:port</span>, one per line. Usernames in a pasted list are kept as written; use <b>One proxy · provider preset</b> to build a sticky-session username for Bright Data, SOAX, Geonode, DataImpulse, Webshare or Thordata.</span></div>
             <button className="btn s" style={{ marginTop: 10 }} onClick={() => openAdd(a, ids => ids.forEach(id => test(id, true)))}><Icon n="plus" s={13} />Paste list</button></div>
         </div>
       </div>

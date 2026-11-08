@@ -99,6 +99,26 @@ impl ProxyEndpoint {
         }
     }
 
+    /// [`ProxyEndpoint::new`] for values typed into a form: the host must be a valid name
+    /// or IP literal (IPv6 with or without brackets) and the port 1-65535.
+    pub fn checked(
+        scheme: ProxyScheme,
+        host: &str,
+        port: u16,
+        auth: Option<Credentials>,
+    ) -> Result<Self> {
+        let h = host.trim();
+        let h = h
+            .strip_prefix('[')
+            .and_then(|x| x.strip_suffix(']'))
+            .unwrap_or(h);
+        let host = validate_host(h)?;
+        if port == 0 {
+            return Err(invalid("port must be a number from 1 to 65535"));
+        }
+        Ok(Self::new(scheme, &host, port, auth))
+    }
+
     /// The host as an IP address, when it is a literal.
     pub fn ip(&self) -> Option<IpAddr> {
         self.host.parse().ok()
@@ -425,6 +445,17 @@ mod tests {
             "socks5://h:1:u:p",
         ] {
             assert!(parse_line(bad, Http).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn checked_form_values() {
+        let e = ProxyEndpoint::checked(Socks5, " GW.Example.NET ", 1080, None).unwrap();
+        assert_eq!((e.host.as_str(), e.port), ("gw.example.net", 1080));
+        let e = ProxyEndpoint::checked(Http, "[2001:db8::1]", 8080, None).unwrap();
+        assert_eq!(e.host, "2001:db8::1");
+        for (h, p) in [("", 1), ("bad host", 1), ("a..b", 1), ("ok.example", 0)] {
+            assert!(ProxyEndpoint::checked(Http, h, p, None).is_err(), "{h}:{p}");
         }
     }
 

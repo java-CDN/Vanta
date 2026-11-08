@@ -27,6 +27,12 @@ export interface Backend {
   // proxies
   listProxies(): Promise<T.ProxyView[]>;
   importProxies(text: string, defaultScheme: T.ProxyScheme): Promise<T.ImportResult>;
+  /** One proxy from the form; a non-empty password goes into the vault. */
+  addProxy(form: T.ProxyForm, password: string | null): Promise<T.ProxyView>;
+  /** `password`: null keeps the vault password, '' removes it, anything else replaces it. */
+  editProxy(proxyId: string, form: T.ProxyForm, password: string | null): Promise<T.ProxyView>;
+  /** Normalise a provider preset and build its username (no secret involved). */
+  previewPreset(preset: T.ProviderPreset): Promise<T.PresetPreview>;
   deleteProxy(proxyId: string): Promise<void>;
   assignProxy(profileId: string, proxyId: string | null): Promise<T.AssignResult>;
   testProxy(proxyId: string): Promise<T.ProxyView>;

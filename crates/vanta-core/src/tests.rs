@@ -1788,3 +1788,145 @@ async fn engine_that_fails_its_sha256sums_never_starts() {
     e.app.launch_profile(id).await.unwrap();
     e.app.stop_profile(id).unwrap();
 }
+
+// ---- Proxy Hub add / edit with provider presets -------------------------------------
+
+fn soax_preset(key: &str) -> vanta_proxy::ProviderPreset {
+    vanta_proxy::ProviderPreset {
+        provider: vanta_proxy::Provider::Soax,
+        base_user: "package-777".into(),
+        params: vanta_proxy::SessionParams {
+            country: Some("de".into()),
+            city: Some("Berlin".into()),
+            session_ttl_min: Some(10),
+            ..Default::default()
+        },
+        session_key: key.into(),
+    }
+}
+
+fn form(host: &str, port: u16, preset: Option<vanta_proxy::ProviderPreset>) -> ProxyForm {
+    ProxyForm {
+        scheme: ProxyScheme::Socks5,
+        host: host.into(),
+        port,
+        label: " shop DE ".into(),
+        username: Some("ignored-when-preset".into()),
+        preset,
+    }
+}
+
+#[test]
+fn preset_preview_add_and_password_only_in_the_vault() {
+    let e = env();
+    // Preview needs no vault and hands back a fresh session key.
+    let pv = e.app.preview_preset(soax_preset("")).unwrap();
+    assert_eq!(pv.preset.session_key.len(), 32);
+    assert!(pv
+        .username
+        .starts_with("package-777-country-de-city-berlin-sessionid-"));
+    assert!(pv.username.ends_with("-sessionlength-600"));
+    // The same key always previews the same username.
+    let again = e.app.preview_preset(pv.preset.clone()).unwrap();
+    assert_eq!(again.username, pv.username);
+    assert!(e.app.preview_preset(soax_preset("zz")).is_err());
+
+    assert!(matches!(
+        e.app.add_proxy(&form("gw.example.net", 5000, None), None),
+        Err(CoreError::NotInitialized)
+    ));
+    e.app.create_vault(MASTER).unwrap();
+    let v = e
+        .app
+        .add_proxy(
+            &form("GW.example.net", 5000, Some(pv.preset.clone())),
+            Some(PASSWORD),
+        )
+        .unwrap();
+    assert_eq!(v.username.as_deref(), Some(pv.username.as_str()));
+    assert_eq!(v.label, "shop DE");
+    assert!(v.has_password);
+    assert_eq!(v.host, "gw.example.net");
+    assert_eq!(v.preset.as_ref(), Some(&pv.preset));
+    assert_eq!(e.app.list_proxies().unwrap()[0].preset, v.preset);
+    // The password is sealed: not in the database file, not in the stored preset.
+    let rec = e.app.store_for_tests().get_proxy(&v.id).unwrap();
+    assert!(!rec.preset.as_deref().unwrap().contains(PASSWORD));
+    drop(rec);
+    assert!(!contains(&db_bytes(&e.dir), PASSWORD));
+    // Plain entries: password without username refused; bad host / port refused.
+    let mut plain = form("192.0.2.10", 1080, None);
+    plain.username = None;
+    assert!(e.app.add_proxy(&plain, Some("pw")).is_err());
+    assert!(e
+        .app
+        .add_proxy(&form("bad host", 1080, None), None)
+        .is_err());
+    assert!(e.app.add_proxy(&form("192.0.2.10", 0, None), None).is_err());
+    let p = e.app.add_proxy(&plain, None).unwrap();
+    assert_eq!((p.username, p.has_password, p.preset), (None, false, None));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_keeps_or_replaces_the_password_and_resets_state() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    assert!(e.app.test_proxy(&proxy).await.unwrap().state.is_online());
+    fresh_health(&e, id, &proxy, 90);
+    let plain = |label: &str| ProxyForm {
+        scheme: ProxyScheme::Socks5,
+        host: "127.0.0.1".into(),
+        port: up.addr.port(),
+        label: label.into(),
+        username: Some(USER.into()),
+        preset: None,
+    };
+    // Label only: state, health and password stay.
+    let v = e.app.edit_proxy(&proxy, &plain("main"), None).unwrap();
+    assert_eq!(v.label, "main");
+    assert!(v.state.is_online() && v.has_password);
+    assert!(e.app.store_for_tests().get_health(id).unwrap().is_some());
+    assert!(e.app.test_proxy(&proxy).await.unwrap().state.is_online());
+    // A wrong new password: state reset, health dropped, and the next test uses it.
+    let v = e
+        .app
+        .edit_proxy(&proxy, &plain("main"), Some("wrong"))
+        .unwrap();
+    assert_eq!(v.state, ProxyState::Unknown);
+    assert!(e.app.store_for_tests().get_health(id).unwrap().is_none());
+    assert!(!e.app.test_proxy(&proxy).await.unwrap().state.is_online());
+    assert_eq!(up.logins.lock().unwrap().last().unwrap().1, "wrong");
+    // Back to the right one.
+    e.app
+        .edit_proxy(&proxy, &plain("main"), Some(PASSWORD))
+        .unwrap();
+    assert!(e.app.test_proxy(&proxy).await.unwrap().state.is_online());
+    assert!(!contains(&db_bytes(&e.dir), "wrong"));
+    // Switch to a preset: the username is rebuilt, the vault password kept.
+    let pv = e.app.preview_preset(soax_preset("")).unwrap();
+    let mut f = plain("main");
+    f.preset = Some(pv.preset.clone());
+    let v = e.app.edit_proxy(&proxy, &f, None).unwrap();
+    assert_eq!(v.username.as_deref(), Some(pv.username.as_str()));
+    assert!(v.has_password && v.state == ProxyState::Unknown);
+    // Remove the password; then drop the username too.
+    let v = e.app.edit_proxy(&proxy, &f, Some("")).unwrap();
+    assert!(!v.has_password);
+    assert!(e
+        .app
+        .store_for_tests()
+        .get_secret(&format!("proxy/{proxy}"))
+        .unwrap()
+        .is_none());
+    let mut none = plain("x");
+    none.username = None;
+    let v = e.app.edit_proxy(&proxy, &none, None).unwrap();
+    assert_eq!((v.username, v.has_password, v.preset), (None, false, None));
+    assert!(e.app.edit_proxy("missing", &none, None).is_err());
+    // The profile still points at it.
+    assert_eq!(
+        e.app.store_for_tests().get(id).unwrap().proxy_id.as_deref(),
+        Some(proxy.as_str())
+    );
+}

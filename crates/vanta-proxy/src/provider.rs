@@ -21,6 +21,14 @@
 //!
 //! A parameter the provider has no syntax for is rejected (never silently dropped), so the
 //! UI can disable it instead of producing an exit that does not match what was asked for.
+//!
+//! **These grammars are taken from the providers' public documentation and have not been
+//! verified against live accounts** ([`PROVIDER_PRESETS_VERIFIED_LIVE`] is `false`); the
+//! Proxy Hub says so next to every preset.
+//!
+//! Proxy Hub entries ([`ProviderPreset`]) derive their session from a random
+//! [`SessionKey`] stored with the preset (one entry = one session, one proxy per profile);
+//! [`build_username`] derives it from a profile id. Both use the same derivation.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -81,6 +89,120 @@ impl Provider {
     }
 }
 
+/// The grammars above come from public documentation, not from tests with live accounts.
+pub const PROVIDER_PRESETS_VERIFIED_LIVE: bool = false;
+
+/// What the UI needs to know about a provider's grammar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderSpec {
+    pub provider: Provider,
+    pub name: &'static str,
+    /// What the base username looks like in the provider's dashboard.
+    pub base_hint: &'static str,
+    pub supports_city: bool,
+    pub supports_ttl: bool,
+    /// Webshare: the sticky slot is a numbered endpoint, so the plan's pool size is needed.
+    pub needs_pool: bool,
+    /// Always `false` for now: taken from public docs, not verified live.
+    pub verified_live: bool,
+}
+
+impl Provider {
+    pub fn spec(&self) -> ProviderSpec {
+        ProviderSpec {
+            provider: *self,
+            name: self.name(),
+            base_hint: match self {
+                Provider::BrightData => "brd-customer-<id>-zone-<zone>",
+                Provider::Soax => "package-<id>",
+                Provider::Geonode => "geonode_<user>",
+                Provider::DataImpulse => "<login>",
+                Provider::Webshare => "<username>",
+                Provider::Thordata => "td-customer-<user> or <user>",
+            },
+            supports_city: self.supports_city(),
+            supports_ttl: self.supports_ttl(),
+            needs_pool: matches!(self, Provider::Webshare),
+            verified_live: PROVIDER_PRESETS_VERIFIED_LIVE,
+        }
+    }
+}
+
+/// The value a sticky session id is derived from: 16 bytes, a profile id or a random key
+/// kept with a Proxy Hub preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SessionKey(pub [u8; 16]);
+
+impl From<ProfileId> for SessionKey {
+    fn from(p: ProfileId) -> Self {
+        SessionKey(*p.as_bytes())
+    }
+}
+
+impl SessionKey {
+    /// A fresh random key.
+    pub fn random() -> Self {
+        let mut b = [0u8; 16];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut b);
+        SessionKey(b)
+    }
+
+    /// 32 hex digits, optionally with UUID hyphens.
+    pub fn parse(s: &str) -> Result<Self> {
+        let hex: String = s.chars().filter(|c| *c != '-').collect();
+        if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(invalid("session key must be 32 hex digits".into()));
+        }
+        let mut b = [0u8; 16];
+        for (i, out) in b.iter_mut().enumerate() {
+            *out = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex checked");
+        }
+        Ok(SessionKey(b))
+    }
+
+    /// Lowercase hex, 32 digits.
+    pub fn to_hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+/// A Proxy Hub entry built from a provider grammar. Holds no password (that stays in the
+/// vault); the stored username is always `self.username()`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderPreset {
+    pub provider: Provider,
+    /// The account's base username exactly as the provider's dashboard shows it.
+    pub base_user: String,
+    #[serde(default)]
+    pub params: SessionParams,
+    /// [`SessionKey`] as hex; kept across edits so the entry keeps its session.
+    pub session_key: String,
+}
+
+impl ProviderPreset {
+    /// The gateway username this preset stands for.
+    pub fn username(&self) -> Result<String> {
+        let key = SessionKey::parse(&self.session_key)?;
+        build_username_for(self.provider, self.base_user.trim(), key, &self.params)
+    }
+
+    /// Same preset with the base username trimmed, the country upper-cased, empty optional
+    /// texts dropped and the session key normalised (an empty key gets a fresh one).
+    pub fn normalized(mut self) -> Result<Self> {
+        self.base_user = self.base_user.trim().to_string();
+        let opt = |v: Option<String>| v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        self.params.country = opt(self.params.country).map(|c| c.to_ascii_uppercase());
+        self.params.city = opt(self.params.city);
+        self.session_key = if self.session_key.trim().is_empty() {
+            SessionKey::random().to_hex()
+        } else {
+            SessionKey::parse(self.session_key.trim())?.to_hex()
+        };
+        self.username()?;
+        Ok(self)
+    }
+}
+
 /// Targeting and session options for a provider preset.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionParams {
@@ -96,12 +218,12 @@ pub struct SessionParams {
     pub rotation: u32,
 }
 
-fn digest(provider: Provider, profile: ProfileId, params: &SessionParams) -> [u8; 32] {
+fn digest(provider: Provider, key: SessionKey, params: &SessionParams) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"vanta/proxy-session/v1\0");
     h.update(provider.tag().as_bytes());
     h.update([0]);
-    h.update(profile.as_bytes());
+    h.update(key.0);
     h.update(params.country.as_deref().unwrap_or("").to_ascii_lowercase());
     h.update([0]);
     h.update(params.city.as_deref().unwrap_or("").to_lowercase());
@@ -113,7 +235,12 @@ fn digest(provider: Provider, profile: ProfileId, params: &SessionParams) -> [u8
 
 /// Deterministic sticky session id: 12 lowercase hex characters (safe in every grammar).
 pub fn session_id(provider: Provider, profile: ProfileId, params: &SessionParams) -> String {
-    digest(provider, profile, params)[..6]
+    session_id_for(provider, profile.into(), params)
+}
+
+/// [`session_id`] for any [`SessionKey`].
+pub fn session_id_for(provider: Provider, key: SessionKey, params: &SessionParams) -> String {
+    digest(provider, key, params)[..6]
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
@@ -180,6 +307,16 @@ pub fn build_username(
     profile: ProfileId,
     params: &SessionParams,
 ) -> Result<String> {
+    build_username_for(provider, base_user, profile.into(), params)
+}
+
+/// [`build_username`] for any [`SessionKey`].
+pub fn build_username_for(
+    provider: Provider,
+    base_user: &str,
+    key: SessionKey,
+    params: &SessionParams,
+) -> Result<String> {
     check_base(base_user)?;
     if params.city.is_some() && params.country.is_none() {
         return Err(invalid("a city needs a country".into()));
@@ -198,7 +335,7 @@ pub fn build_username(
             return Err(invalid("session lifetime must be 1 to 1440 minutes".into()));
         }
     }
-    let sid = session_id(provider, profile, params);
+    let sid = session_id_for(provider, key, params);
     let cc = country(params)?;
     let mut u = String::from(base_user);
     let mut push = |k: &str, v: &str| {
@@ -300,7 +437,7 @@ pub fn build_username(
                 .pool_size
                 .filter(|p| *p >= 1)
                 .ok_or_else(|| invalid("Webshare sticky sessions need pool_size >= 1".into()))?;
-            let d = digest(provider, profile, params);
+            let d = digest(provider, key, params);
             let n = u64::from_le_bytes(d[..8].try_into().expect("8 bytes")) % u64::from(pool) + 1;
             if let Some(c) = &cc {
                 u.push('-');
@@ -489,6 +626,118 @@ mod tests {
             ..Default::default()
         };
         assert!(build_username(Provider::Soax, "package-1", pid(1), &pool).is_err());
+    }
+
+    /// Fixed vector shared with the UI's TypeScript port (ui/tests/presets.test.ts).
+    #[test]
+    fn preset_vector_matches_the_ui_port() {
+        let p = ProviderPreset {
+            provider: Provider::Soax,
+            base_user: " package-123456 ".into(),
+            params: SessionParams {
+                country: Some("us".into()),
+                city: Some("New York".into()),
+                session_ttl_min: Some(30),
+                pool_size: None,
+                rotation: 2,
+            },
+            session_key: "00112233-4455-6677-8899-AABBCCDDEEFF".into(),
+        }
+        .normalized()
+        .unwrap();
+        assert_eq!(p.session_key, "00112233445566778899aabbccddeeff");
+        assert_eq!(p.base_user, "package-123456");
+        assert_eq!(p.params.country.as_deref(), Some("US"));
+        let key = SessionKey::parse(&p.session_key).unwrap();
+        let sid = session_id_for(Provider::Soax, key, &p.params);
+        assert_eq!(sid, SOAX_VECTOR_SID);
+        assert_eq!(
+            p.username().unwrap(),
+            format!("package-123456-country-us-city-new+york-sessionid-{sid}-sessionlength-1800")
+        );
+        // Webshare slot vector.
+        let w = ProviderPreset {
+            provider: Provider::Webshare,
+            base_user: "abcd".into(),
+            params: SessionParams {
+                country: Some("gb".into()),
+                pool_size: Some(10),
+                ..Default::default()
+            },
+            session_key: "00112233445566778899aabbccddeeff".into(),
+        };
+        assert_eq!(w.username().unwrap(), WEBSHARE_VECTOR);
+    }
+
+    const SOAX_VECTOR_SID: &str = "04d3accaaada";
+    const WEBSHARE_VECTOR: &str = "abcd-GB-8";
+
+    #[test]
+    fn session_key_grammar_and_profile_equivalence() {
+        let id = pid(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+        let k = SessionKey::from(id);
+        assert_eq!(k.to_hex(), "00112233445566778899aabbccddeeff");
+        assert_eq!(SessionKey::parse(&k.to_hex()).unwrap(), k);
+        let p = us_ny();
+        // A profile and the same bytes as a preset key give the same session.
+        assert_eq!(
+            session_id(Provider::Geonode, id, &p),
+            session_id_for(Provider::Geonode, k, &p)
+        );
+        for bad in ["", "xyz", "0011", &"g".repeat(32), &"0".repeat(33)] {
+            assert!(SessionKey::parse(bad).is_err(), "{bad}");
+        }
+        assert_ne!(SessionKey::random(), SessionKey::random());
+    }
+
+    #[test]
+    fn preset_normalizes_and_rejects() {
+        let base = ProviderPreset {
+            provider: Provider::Geonode,
+            base_user: "geonode_u".into(),
+            params: SessionParams {
+                country: Some(" de ".into()),
+                city: Some("  ".into()),
+                ..Default::default()
+            },
+            session_key: String::new(),
+        };
+        let n = base.clone().normalized().unwrap();
+        assert_eq!(n.params.country.as_deref(), Some("DE"));
+        assert_eq!(n.params.city, None);
+        assert_eq!(n.session_key.len(), 32);
+        // Same key, same username; a new rotation moves the session.
+        let u = n.username().unwrap();
+        assert_eq!(u, n.clone().normalized().unwrap().username().unwrap());
+        let mut r = n.clone();
+        r.params.rotation += 1;
+        assert_ne!(u, r.username().unwrap());
+        // Wrong base, unsupported parameter, bad key.
+        let mut bad = base.clone();
+        bad.base_user = "someone".into();
+        assert!(bad.normalized().is_err());
+        let mut bad = base.clone();
+        bad.provider = Provider::BrightData;
+        bad.base_user = "brd-customer-1-zone-z".into();
+        bad.params.session_ttl_min = Some(10);
+        assert!(bad.normalized().is_err());
+        let mut bad = base;
+        bad.session_key = "nothex".into();
+        assert!(bad.normalized().is_err());
+        // Serialized form (stored with the Proxy Hub entry): no password field at all.
+        let j = serde_json::to_value(&n).unwrap();
+        assert_eq!(j["provider"], "geonode");
+        assert!(j.get("password").is_none());
+    }
+
+    #[test]
+    fn specs_say_not_verified() {
+        for p in Provider::ALL {
+            let s = p.spec();
+            assert!(!s.verified_live);
+            assert_eq!(s.supports_city, p.supports_city());
+            assert_eq!(s.needs_pool, p == Provider::Webshare);
+        }
     }
 
     #[test]

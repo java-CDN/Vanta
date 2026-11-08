@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use vanta_fingerprint::SurfaceMode;
 use vanta_log::{LogEntry, LogKind};
-use vanta_proxy::ProxyState;
+use vanta_proxy::{ProviderPreset, ProxyScheme, ProxyState};
 use vanta_store::{HealthSummary, ProfileMeta};
 use vanta_types::{OsKind, ProfileId, ProfileStatus};
 
@@ -112,6 +112,31 @@ pub struct ProxyView {
     pub state: ProxyState,
     /// `scheme://user:***@host:port`.
     pub display: String,
+    /// Provider preset the username is built from (no password; that stays in the vault).
+    pub preset: Option<ProviderPreset>,
+}
+
+/// The non-secret fields of a Proxy Hub entry, as typed into the add / edit form. With a
+/// `preset`, the username is built from it and `username` is ignored.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProxyForm {
+    pub scheme: ProxyScheme,
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub preset: Option<ProviderPreset>,
+}
+
+/// A preset as the backend normalised it (a fresh session key when it had none) and the
+/// username it builds.
+#[derive(Debug, Clone, Serialize)]
+pub struct PresetPreview {
+    pub preset: ProviderPreset,
+    pub username: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

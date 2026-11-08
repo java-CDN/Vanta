@@ -144,6 +144,36 @@ await check('add proxy parse + import', async () => {
   const t = await page.locator('#apPrev').innerText(); await page.click('#apOk');
   return t.includes('3 valid') && t.includes('2 invalid') && await until(async () => (await rows().count()) === n + 3, 3000);
 });
+await check('add proxy with provider preset: live username preview', async () => {
+  const n = await rows().count();
+  await page.click('.hd [data-a=pxAdd]'); await page.click('.modal .tabs [data-id=apOne]');
+  await page.selectOption('#pfProv', 'soax'); await page.fill('#pfHost', 'proxy.soax.example'); await page.fill('#pfPort', '5000');
+  await page.fill('#pfBase', 'package-123'); await page.fill('#pfCc', 'de'); await page.fill('#pfCity', 'Berlin'); await page.fill('#pfTtl', '10');
+  const pv = () => page.locator('#pfPreview').innerText();
+  const first = await until(async () => /^package-123-country-de-city-berlin-sessionid-[0-9a-f]{12}-sessionlength-600$/.test(await pv()), 3000) ? await pv() : '';
+  await page.click('[data-a=pfRotate]');
+  const rotated = await until(async () => (await pv()) !== first && /sessionid-[0-9a-f]{12}/.test(await pv()), 3000);
+  const note = (await page.locator('.modal').innerText()).includes('not verified live');
+  await page.selectOption('#pfProv', 'webshare');
+  const cityOff = await page.locator('#pfCity').isDisabled();
+  await page.selectOption('#pfProv', 'soax'); await page.fill('#pfCity', 'Berlin'); await page.fill('#pfTtl', '10');
+  await page.fill('#pfPw', 'hunter2-secret'); await page.click('#pfOk');
+  return !!first && rotated && note && cityOff && await until(async () => (await rows().count()) === n + 1 && (await toasts()).includes('Added'), 3000);
+});
+await check('edit proxy: preset kept, password stays in the vault', async () => {
+  const row = rowOf('proxy.soax.example'); await row.click(); await sleep(100);
+  const shown = (await page.locator('#pxPreset').innerText()).includes('SOAX · DE · Berlin · 10 min');
+  const secretHidden = !(await body()).includes('hunter2-secret');
+  await page.click('.pxside [data-a=pxEdit]');
+  const kept = await until(async () => /^package-123-country-de-city-berlin-sessionid-/.test(await page.locator('#pfPreview').innerText()), 3000);
+  const pwEmpty = (await page.locator('#pfPw').inputValue()) === '';
+  await page.fill('#pfLabel', 'soax-de-berlin'); await page.click('#pfOk');
+  const saved = await until(async () => (await toasts()).includes('saved') && (await rowOf('soax-de-berlin').count()) === 1, 3000);
+  await page.click('.pxside [data-a=pxEdit]'); await page.click('.modal [data-id=plain]');
+  await page.fill('#pfUser', ''); await page.fill('#pfHost', 'bad host'); await page.click('#pfOk');
+  const refused = await until(async () => (await page.locator('#pfErr').innerText()).length > 0, 2000);
+  return shown && secretHidden && kept && pwEmpty && saved && refused;
+});
 await check('assign proxy (shared warning)', async () => {
   await rows().first().click(); await sleep(100);
   await page.locator('#pxAssign').selectOption({ index: 3 }); await page.click('[data-a=pxAssign]'); await sleep(200);

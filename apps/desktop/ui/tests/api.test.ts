@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { tauriBackend, EVENTS } from '../src/api/tauri';
 import { asCoreError, errorText } from '../src/api/backend';
 import type { Backend } from '../src/api/backend';
+import type * as T from '../src/api/types';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +17,7 @@ function capture() {
 }
 
 const ID = '7f1c6a52-0d0e-4f53-9d4c-2b8f1a9e3c11';
+const FORM: T.ProxyForm = { scheme: 'socks5', host: 'gw.example.net', port: 5000, label: '', username: null, preset: { provider: 'soax', base_user: 'package-1', params: { country: 'DE', rotation: 0 }, session_key: '' } };
 
 describe('tauri api mapping', () => {
   it('maps every method to its command and argument names', async () => {
@@ -38,6 +40,11 @@ describe('tauri api mapping', () => {
       [x => x.regenerateFingerprint(ID, null), 'regenerate_fingerprint', { id: ID, os: null }],
       [x => x.listProxies(), 'list_proxies', undefined],
       [x => x.importProxies('h:1', 'socks5'), 'import_proxies', { text: 'h:1', defaultScheme: 'socks5' }],
+      [x => x.addProxy(FORM, null), 'add_proxy', { form: FORM }],
+      [x => x.addProxy(FORM, 'pw'), 'add_proxy', { form: FORM, password: 'pw' }],
+      [x => x.editProxy('p1', FORM, null), 'edit_proxy', { proxyId: 'p1', form: FORM }],
+      [x => x.editProxy('p1', FORM, ''), 'edit_proxy', { proxyId: 'p1', form: FORM, password: '' }],
+      [x => x.previewPreset(FORM.preset!), 'preview_preset', { preset: FORM.preset }],
       [x => x.deleteProxy('p1'), 'delete_proxy', { proxyId: 'p1' }],
       [x => x.assignProxy(ID, null), 'assign_proxy', { profileId: ID, proxyId: null }],
       [x => x.testProxy('p1'), 'test_proxy', { proxyId: 'p1' }],

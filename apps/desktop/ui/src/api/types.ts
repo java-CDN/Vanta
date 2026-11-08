@@ -75,6 +75,25 @@ export type ProxyState =
 
 export type ProxyScheme = 'http' | 'https' | 'socks5';
 
+/** Residential providers with a built-in username grammar (vanta_proxy::Provider). */
+export type Provider = 'bright_data' | 'soax' | 'geonode' | 'data_impulse' | 'webshare' | 'thordata';
+
+export interface SessionParams {
+  /** ISO 3166-1 alpha-2. */
+  country?: string | null;
+  city?: string | null;
+  session_ttl_min?: number | null;
+  /** Webshare only: numbered endpoints in the plan. */
+  pool_size?: number | null;
+  /** Bumped to move to a new sticky session. */
+  rotation: number;
+}
+
+/** vanta_proxy::ProviderPreset. Holds no password. `session_key`: 32 hex digits, or '' to
+ *  get a fresh one from `previewPreset`. */
+export interface ProviderPreset { provider: Provider; base_user: string; params: SessionParams; session_key: string }
+export interface PresetPreview { preset: ProviderPreset; username: string }
+
 export interface ProxyView {
   id: string;
   scheme: ProxyScheme;
@@ -85,6 +104,18 @@ export interface ProxyView {
   label: string;
   state: ProxyState;
   display: string;
+  preset: ProviderPreset | null;
+}
+
+/** Non-secret fields of the add / edit form (vanta_core::ProxyForm). With a preset the
+ *  username is built from it. */
+export interface ProxyForm {
+  scheme: ProxyScheme;
+  host: string;
+  port: number;
+  label: string;
+  username: string | null;
+  preset: ProviderPreset | null;
 }
 
 export interface ImportResult { added: ProxyView[]; errors: { line: number; message: string }[] }

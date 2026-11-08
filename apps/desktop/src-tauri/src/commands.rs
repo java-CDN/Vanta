@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, State};
 use vanta_core::*;
-use vanta_proxy::{DohProvider, GuardPolicy, ProxyScheme};
+use vanta_proxy::{DohProvider, GuardPolicy, ProviderPreset, ProxyScheme};
 use vanta_store::ProfileMeta;
 use vanta_types::{OsKind, ProfileId};
 use vanta_vault::{AutoLock, LockEvent};
@@ -250,6 +250,38 @@ pub async fn import_proxies(
     let text = Zeroizing::new(text);
     let app = s.app.clone();
     blocking(move || app.import_proxies(&text, default_scheme)).await
+}
+
+/// One proxy from the add form. The password goes straight into the vault.
+#[tauri::command]
+pub async fn add_proxy(
+    s: State<'_, Shell>,
+    form: ProxyForm,
+    password: Option<String>,
+) -> R<ProxyView> {
+    let password = password.map(Zeroizing::new);
+    let app = s.app.clone();
+    blocking(move || app.add_proxy(&form, password.as_deref().map(|p| p.as_str()))).await
+}
+
+/// `password`: absent keeps the vault password, `""` removes it, anything else replaces it.
+#[tauri::command]
+pub async fn edit_proxy(
+    s: State<'_, Shell>,
+    proxy_id: String,
+    form: ProxyForm,
+    password: Option<String>,
+) -> R<ProxyView> {
+    let password = password.map(Zeroizing::new);
+    let app = s.app.clone();
+    blocking(move || app.edit_proxy(&proxy_id, &form, password.as_deref().map(|p| p.as_str())))
+        .await
+}
+
+/// Normalise a provider preset and build its username (live preview; no secret involved).
+#[tauri::command]
+pub fn preview_preset(s: State<'_, Shell>, preset: ProviderPreset) -> R<PresetPreview> {
+    s.app.preview_preset(preset)
 }
 
 #[tauri::command]
