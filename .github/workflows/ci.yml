@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # team/* branches get the same gates before they are merged into main.
+    branches: [main, 'team/**']
   pull_request:
     branches: [main]
   # Manual run, optionally bundling an engine into the NSIS installer.
@@ -86,6 +87,12 @@ jobs:
           npm run smoke
       - name: cargo clippy (vanta-desktop)
         run: cargo clippy -p vanta-desktop --all-targets -- -D warnings
+      # Unit tests of the Tauri shell (settings validation, engine path choice). Debug
+      # build without debuginfo to keep the extra compile and the rust-cache small.
+      - name: cargo test (vanta-desktop)
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: cargo test -p vanta-desktop
       # Optional engine: only on a manual run with engine_run_id. The artifact is checked
       # against its SHA256SUMS and extracted by scripts/stage_engine.py; the app checks the
       # installed files again at every start.

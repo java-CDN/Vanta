@@ -3,7 +3,8 @@
 #
 # The Tauri shell (apps/desktop/src-tauri, crate vanta-desktop) is excluded from the Rust
 # gates here: it links WebView2 on Windows and webkit2gtk elsewhere, and needs the built UI.
-# Windows CI (.github/workflows/ci.yml, job "desktop") runs clippy and `tauri build` for it.
+# Windows CI (.github/workflows/ci.yml, job "desktop") runs clippy, `cargo test -p
+# vanta-desktop` and `tauri build` for it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.cargo/bin:$PATH"
