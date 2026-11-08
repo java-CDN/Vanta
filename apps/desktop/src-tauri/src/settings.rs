@@ -20,6 +20,12 @@ pub struct Settings {
     /// Plain-text IP echo endpoint for health runs; `None` = the built-in default
     /// (`vanta_proxy::DEFAULT_IP_ECHO_URL`). Applies at once.
     pub ip_echo_url: Option<String>,
+    /// JSON IP information endpoint for the Proxy Hub check (asked through the proxy only);
+    /// `None` = `vanta_proxy::DEFAULT_IP_INFO_URL`.
+    pub ip_info_url: Option<String>,
+    /// Speed test download for the Proxy Hub check (through the proxy only, capped at
+    /// `vanta_proxy::inspect::SPEED_MAX_BYTES`); `None` = `DEFAULT_SPEED_TEST_URL`.
+    pub speed_test_url: Option<String>,
 }
 
 impl Default for Settings {
@@ -31,6 +37,8 @@ impl Default for Settings {
             confirm_delete: true,
             engine_path: None,
             ip_echo_url: None,
+            ip_info_url: None,
+            speed_test_url: None,
         }
     }
 }
@@ -57,7 +65,10 @@ impl Settings {
                 return Err(invalid("engine path is empty or too long"));
             }
         }
-        if let Some(u) = &self.ip_echo_url {
+        for u in [&self.ip_echo_url, &self.ip_info_url, &self.speed_test_url]
+            .into_iter()
+            .flatten()
+        {
             vanta_proxy::EchoUrl::parse(u)?;
         }
         Ok(())
@@ -69,6 +80,22 @@ impl Settings {
             .as_deref()
             .and_then(|u| vanta_proxy::EchoUrl::parse(u).ok())
             .unwrap_or_default()
+    }
+
+    fn url_or(v: &Option<String>, default: &str) -> vanta_proxy::EchoUrl {
+        v.as_deref()
+            .and_then(|u| vanta_proxy::EchoUrl::parse(u).ok())
+            .unwrap_or_else(|| vanta_proxy::EchoUrl::parse(default).expect("valid default"))
+    }
+
+    /// The IP information endpoint in use (Proxy Hub check).
+    pub fn info_url(&self) -> vanta_proxy::EchoUrl {
+        Self::url_or(&self.ip_info_url, vanta_proxy::DEFAULT_IP_INFO_URL)
+    }
+
+    /// The speed test download in use (Proxy Hub check).
+    pub fn speed_url(&self) -> vanta_proxy::EchoUrl {
+        Self::url_or(&self.speed_test_url, vanta_proxy::DEFAULT_SPEED_TEST_URL)
     }
 
     /// Missing or unreadable file: defaults (a broken file never blocks start-up).
@@ -111,5 +138,26 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"theme":"light"}"#).unwrap();
         assert_eq!(old.ip_echo_url, None);
         assert_eq!(old.theme, "light");
+    }
+
+    #[test]
+    fn proxy_check_urls_default_and_validate() {
+        let mut s = Settings::default();
+        assert_eq!(s.info_url().to_string(), vanta_proxy::DEFAULT_IP_INFO_URL);
+        assert_eq!(
+            s.speed_url().to_string(),
+            vanta_proxy::DEFAULT_SPEED_TEST_URL
+        );
+        s.ip_info_url = Some("https://ipwho.is/".into());
+        s.speed_test_url = Some("https://dl.example/2mb".into());
+        assert!(s.validate().is_ok());
+        assert_eq!(s.info_url().to_string(), "https://ipwho.is/");
+        s.speed_test_url = Some("http://dl.example/2mb".into());
+        assert!(s.validate().is_err());
+        s.speed_test_url = None;
+        s.ip_info_url = Some("https://192.168.1.1/json".into());
+        assert!(s.validate().is_err());
+        let old: Settings = serde_json::from_str(r#"{"ip_echo_url":null}"#).unwrap();
+        assert_eq!((old.ip_info_url, old.speed_test_url), (None, None));
     }
 }

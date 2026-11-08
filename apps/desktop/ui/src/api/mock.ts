@@ -48,7 +48,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   const engineCheck: T.EngineCheck = opts.engineCheck === 'failed' ? { state: 'failed', message: 'chrome.dll differs' } : { state: 'not_bundled' };
   /** Consecutive failed launches per profile (like vanta-core). */
   const failed = new Map<string, { n: number; last: string }>();
-  let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null };
+  let settings: T.Settings = { autolock_minutes: 10, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null, ip_info_url: null, speed_test_url: null };
   let lastActive = Date.now();
   const listeners = { status: new Set<(c: T.StatusChange[]) => void>(), log: new Set<(e: T.LogEntry[]) => void>(), locked: new Set<(e: T.LockedEvent) => void>(), close: new Set<(e: T.CloseRequest) => void>() };
   const sub = <F>(set: Set<F>, cb: F): Promise<Unsubscribe> => { set.add(cb); return Promise.resolve(() => { set.delete(cb); }); };
@@ -60,7 +60,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     const host = ip;
     const checked = now - (2 + (hashStr(name) % 50)) * 60000;
     const state: T.ProxyState = kind === 'offline' ? { state: 'offline', checked_ms: checked, reason: 'timeout' } : { state: 'online', checked_ms: checked, latency_ms: lat ?? 0 };
-    return { cc, ip, latency: lat, kind, view: { id: mkId('px'), scheme, host, port, username: user, has_password: true, label: name, state, display: `${scheme}://${user}:***@${host}:${port}`, preset: null } };
+    return { cc, ip, latency: lat, kind, view: { id: mkId('px'), scheme, host, port, username: user, has_password: true, label: name, state, display: `${scheme}://${user}:***@${host}:${port}`, preset: null, checks: null } };
   });
   const pxByLabel = (l: string) => proxies.find(p => p.view.label === l)!;
   const profiles: MProfile[] = PROFILE_SEED.map(([name, folder, tags, os, px, health, status, ago, device, geo, notes]) => {
@@ -302,7 +302,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       const rows = parseList(text, def); const added: T.ProxyView[] = []; const errors: T.ImportResult['errors'] = [];
       for (const r of rows) {
         if (r.err) { errors.push({ line: r.line, message: r.err }); continue; }
-        const v: T.ProxyView = { id: mkId('ipx'), scheme: r.scheme!, host: r.host!, port: r.port!, username: r.user ?? null, has_password: !!r.hasPassword, label: '', state: { state: 'unknown' }, display: r.user ? `${r.scheme}://${r.user}:***@${r.host}:${r.port}` : `${r.scheme}://${r.host}:${r.port}`, preset: null };
+        const v: T.ProxyView = { id: mkId('ipx'), scheme: r.scheme!, host: r.host!, port: r.port!, username: r.user ?? null, has_password: !!r.hasPassword, label: '', state: { state: 'unknown' }, display: r.user ? `${r.scheme}://${r.user}:***@${r.host}:${r.port}` : `${r.scheme}://${r.host}:${r.port}`, preset: null, checks: null };
         const keys = Object.keys(COUNTRIES);
         proxies.push({ view: v, cc: keys[hashStr(r.host!) % keys.length], ip: r.host!, latency: 40 + (hashStr(r.host!) % 90), kind: 'ok' });
         added.push(clone(v));
@@ -314,7 +314,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       need(); await wait(120);
       const f = await checkForm(form);
       if (password && !f.username) throw { kind: 'invalid', message: 'a password needs a username' };
-      const v: T.ProxyView = { id: mkId('apx'), ...f, has_password: !!password, state: { state: 'unknown' }, display: '' };
+      const v: T.ProxyView = { id: mkId('apx'), ...f, has_password: !!password, state: { state: 'unknown' }, display: '', checks: null };
       v.display = display(v);
       const keys = Object.keys(COUNTRIES);
       proxies.push({ view: v, cc: keys[hashStr(v.host) % keys.length], ip: /^\d+\.\d+\.\d+\.\d+$/.test(v.host) ? v.host : `198.51.100.${hashStr(v.host) % 250}`, latency: 40 + (hashStr(v.host) % 90), kind: 'ok' });
@@ -327,7 +327,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       const old = x.view;
       const hasPw = !f.username ? false : password === null ? old.has_password : password !== '';
       const changed = password !== null || old.scheme !== f.scheme || old.host !== f.host || old.port !== f.port || old.username !== f.username || hasPw !== old.has_password;
-      x.view = { ...old, ...f, has_password: hasPw, state: changed ? { state: 'unknown' } : old.state, display: '' };
+      x.view = { ...old, ...f, has_password: hasPw, state: changed ? { state: 'unknown' } : old.state, display: '', checks: changed ? null : old.checks };
       x.view.display = display(x.view);
       if (changed) profiles.forEach(p => { if (p.meta.proxy_id === id) p.health = null; });
       return clone(x.view);
@@ -348,6 +348,32 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       const t = Date.now();
       if (x.kind === 'offline') { x.view.state = { state: 'offline', checked_ms: t, reason: 'timeout' }; pushLog('proxy_failure', null, `proxy ${x.view.display} check failed: timed out`); }
       else { const base = x.latency ?? 60; x.view.state = { state: 'online', checked_ms: t, latency_ms: x.kind === 'slow' ? 380 + (t % 70) : Math.max(12, Math.round(base * (0.85 + (t % 30) / 100))) }; }
+      return clone(x.view);
+    },
+    async inspectProxy(id, speed) {
+      const v = await this.testProxy(id); const x = px(id);
+      const t = Date.now();
+      const skip = (reason: string) => ({ status: 'skipped' as const, reason });
+      const old = x.view.checks;
+      if (v.state.state !== 'online') {
+        x.view.checks = { checked_ms: t, exit: skip('proxy offline'), udp: skip('proxy offline'), blacklist: skip('proxy offline'), speed: speed ? { checked_ms: t, result: skip('proxy offline') } : old?.speed ?? null };
+        return clone(x.view);
+      }
+      await wait(500);
+      const h = hashStr(x.view.host);
+      const zones: [string, string][] = [['zen.spamhaus.org', 'Spamhaus ZEN'], ['bl.spamcop.net', 'SpamCop'], ['dnsbl.dronebl.org', 'DroneBL'], ['psbl.surriel.com', 'PSBL']];
+      const blacklist: T.DnsblResult[] = zones.map(([zone, name], i) => i === 0
+        ? { zone, name, state: 'unknown', reason: 'test entry 127.0.0.2: the list refuses queries from public resolvers (127.255.255.254)' }
+        : x.kind === 'slow' && i === 2 ? { zone, name, state: 'listed', codes: ['127.0.0.9'] } : { zone, name, state: 'not_listed' });
+      let sp = old?.speed ?? null;
+      if (speed) { await wait(700); const mbps = Math.round(4000 / Math.max(20, x.latency ?? 60) * 100) / 100; sp = { checked_ms: Date.now(), result: { status: 'ok', result: { bytes: 2_000_000, millis: Math.round(16000 / mbps), mbps, complete: true } } }; }
+      x.view.checks = {
+        checked_ms: t,
+        exit: { status: 'ok', result: { ip: x.ip, asn: 64496 + (h % 15), org: `Example Net ${String.fromCharCode(65 + (h % 26))}`, country: x.cc } },
+        udp: { status: 'ok', result: x.view.scheme !== 'socks5' ? { support: 'not_socks5' } : h % 3 === 0 ? { support: 'supported' } : { support: 'unsupported', reply: 7 } },
+        blacklist: { status: 'ok', result: blacklist },
+        speed: sp,
+      };
       return clone(x.view);
     },
     async launchProfile(id, confirmed = false) {
@@ -411,8 +437,10 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     async getSettings() { return clone(settings); },
     async setSettings(s) {
       if (![0, 1, 5, 10, 15, 30, 60].includes(s.autolock_minutes)) throw { kind: 'invalid', message: 'auto-lock must be one of 0, 1, 5, 10, 15, 30, 60 minutes' };
-      const echoProblem = s.ip_echo_url == null ? null : echoUrlProblem(s.ip_echo_url);
-      if (echoProblem) throw { kind: 'invalid', message: `IP echo URL: ${echoProblem}` };
+      for (const [k, v] of [['IP echo URL', s.ip_echo_url], ['IP info URL', s.ip_info_url], ['Speed test URL', s.speed_test_url]] as const) {
+        const problem = v == null ? null : echoUrlProblem(v);
+        if (problem) throw { kind: 'invalid', message: `${k}: ${problem}` };
+      }
       settings = clone(s); lastActive = Date.now(); return clone(settings);
     },
     async reportActivity() { lastActive = Date.now(); },

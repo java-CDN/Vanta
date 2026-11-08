@@ -10,6 +10,10 @@ use std::time::Duration;
 use vanta_launcher::{relay_clients, spawn_in_job, EngineProcess, KillOnCloseJob};
 use vanta_proxy::doh::BoxFuture;
 use vanta_proxy::echo::{exit_ip_via_proxy, host_ip_direct, primary_local_ip};
+use vanta_proxy::inspect::{
+    ip_info_via_proxy, speed_via_proxy, udp_check, Check, IpInfo, SpeedResult, UdpResult,
+    SPEED_MAX_BYTES,
+};
 use vanta_proxy::net::NetResult;
 use vanta_proxy::{
     AllowedClients, DohResolver, DohRoute, EchoUrl, GuardPolicy, ProxyEndpoint, Resolver,
@@ -158,6 +162,76 @@ impl IpEcho for HttpsIpEcho {
     }
 }
 
+/// The Proxy Hub's extended checks (`vanta_proxy::inspect`). Every call goes through
+/// `proxy` (resolved to `proxy_addr`). Production: [`ProxyInspector`]. Blocklist lookups use
+/// [`NetFactory::relay_resolver`] (DoH through the proxy).
+pub trait ProxyChecker: Send + Sync {
+    /// Exit IP, ASN, organisation and country from the IP information endpoint.
+    fn ip_info<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<IpInfo>>;
+    /// Bounded timed download.
+    fn speed<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<SpeedResult>>;
+    /// SOCKS5 UDP ASSOCIATE support.
+    fn udp<'a>(
+        &'a self,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, Check<UdpResult>>;
+}
+
+/// The real checks over HTTPS / SOCKS5 (`vanta_proxy::inspect`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProxyInspector;
+
+impl ProxyChecker for ProxyInspector {
+    fn ip_info<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<IpInfo>> {
+        Box::pin(ip_info_via_proxy(url, proxy, proxy_addr, timeout))
+    }
+
+    fn speed<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, NetResult<SpeedResult>> {
+        Box::pin(speed_via_proxy(
+            url,
+            proxy,
+            proxy_addr,
+            timeout,
+            SPEED_MAX_BYTES,
+        ))
+    }
+
+    fn udp<'a>(
+        &'a self,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        timeout: Duration,
+    ) -> BoxFuture<'a, Check<UdpResult>> {
+        Box::pin(udp_check(proxy, proxy_addr, timeout))
+    }
+}
+
 /// Who may use a profile's relay.
 #[derive(Clone)]
 pub enum RelayClients {
@@ -192,6 +266,7 @@ pub struct Deps {
     pub net: Arc<dyn NetFactory>,
     pub clients: RelayClients,
     pub ip_echo: Arc<dyn IpEcho>,
+    pub checker: Arc<dyn ProxyChecker>,
 }
 
 impl Deps {
@@ -201,6 +276,7 @@ impl Deps {
             net: Arc::new(DohNet::default()),
             clients: RelayClients::ProcessTree,
             ip_echo: Arc::new(HttpsIpEcho),
+            checker: Arc::new(ProxyInspector),
         }
     }
 }

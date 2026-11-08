@@ -12,6 +12,25 @@ describe('mock backend (demo data from the prototype)', () => {
     await b.unlock('anything');
     expect((await b.appInfo()).unlocked).toBe(true);
   });
+  it('runs the extended proxy check like vanta-core (speed kept, offline skipped)', async () => {
+    const b = mockBackend({ speed: 0, unlocked: true });
+    const px = await b.listProxies();
+    const de = px.find(p => p.label === 'geo-de-1')!;
+    const v = await b.inspectProxy(de.id, false);
+    expect(v.checks?.exit).toMatchObject({ status: 'ok', result: { country: 'DE' } });
+    expect(v.checks?.blacklist.status).toBe('ok');
+    expect(v.checks?.speed).toBeNull();
+    const s = (await b.inspectProxy(de.id, true)).checks!.speed!;
+    expect(s.result.status).toBe('ok');
+    expect((await b.inspectProxy(de.id, false)).checks!.speed).toEqual(s);
+    const jp = px.find(p => p.label === 'dc-jp-1')!;
+    const off = await b.inspectProxy(jp.id, false);
+    expect(off.checks?.exit.status).toBe('skipped');
+    // Editing the endpoint drops the old results.
+    const e = await b.editProxy(de.id, { scheme: de.scheme, host: '192.0.2.200', port: de.port, label: de.label, username: de.username, preset: null }, null);
+    expect(e.checks).toBeNull();
+    await expect(b.setSettings({ ...(await b.getSettings()), speed_test_url: 'http://x.example/' })).rejects.toMatchObject({ kind: 'invalid' });
+  });
   it('serves 25 Windows-only profiles and 28 proxies', async () => {
     const b = mockBackend({ speed: 0, unlocked: true });
     const page = await b.listProfiles('', 1000, 0);

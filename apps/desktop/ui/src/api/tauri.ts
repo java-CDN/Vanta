@@ -40,6 +40,7 @@ export function tauriBackend(invoke: Invoke, listen: Listen): Backend {
     deleteProxy: proxyId => invoke('delete_proxy', { proxyId }),
     assignProxy: (profileId, proxyId) => invoke('assign_proxy', { profileId, proxyId }),
     testProxy: proxyId => invoke('test_proxy', { proxyId }),
+    inspectProxy: (proxyId, speed) => invoke('inspect_proxy', { proxyId, speed }),
     launchProfile: (id, confirmed = false) => invoke('launch_profile', confirmed ? { id, confirmed: true } : { id }),
     stopProfile: id => invoke('stop_profile', { id }),
     runningProfiles: () => invoke('running_profiles'),

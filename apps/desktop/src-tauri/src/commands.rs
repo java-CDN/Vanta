@@ -308,6 +308,21 @@ pub async fn test_proxy(s: State<'_, Shell>, proxy_id: String) -> R<ProxyView> {
     .await
 }
 
+/// The extended check (exit IP / ASN / country, UDP, blocklists; speed when `speed`), all
+/// through the proxy under test. Results are stored with the proxy only.
+#[tauri::command]
+pub async fn inspect_proxy(
+    s: State<'_, Shell>,
+    proxy_id: String,
+    speed: Option<bool>,
+) -> R<ProxyView> {
+    let speed = speed.unwrap_or(false);
+    drive(s.app.clone(), move |app| async move {
+        app.inspect_proxy(&proxy_id, speed).await
+    })
+    .await
+}
+
 // ---- launch & health ---------------------------------------------------------------
 
 /// `confirmed`: the user confirmed one more attempt after `MAX_FAILED_LAUNCHES` failed
@@ -401,13 +416,17 @@ pub fn set_settings(s: State<'_, Shell>, settings: Settings) -> R<Settings> {
         .engine_path
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty());
-    settings.ip_echo_url = settings
-        .ip_echo_url
-        .map(|u| u.trim().to_string())
-        .filter(|u| !u.is_empty());
+    let tidy = |u: Option<String>| u.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+    settings.ip_echo_url = tidy(settings.ip_echo_url);
+    settings.ip_info_url = tidy(settings.ip_info_url);
+    settings.speed_test_url = tidy(settings.speed_test_url);
     settings.validate()?;
     settings.save(&s.settings_path)?;
     s.app.set_ip_echo_url(&settings.echo_url().to_string())?;
+    s.app.set_proxy_check_urls(
+        &settings.info_url().to_string(),
+        &settings.speed_url().to_string(),
+    )?;
     {
         let mut al = held(&s.autolock);
         al.set_idle_minutes(settings.autolock_minutes);

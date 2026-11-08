@@ -435,12 +435,107 @@ fn config(dir: &Path) -> AppConfig {
     cfg
 }
 
+// ---- mock Proxy Hub checker ------------------------------------------------------------
+
+/// Answers the Proxy Hub checks as the test sets them; records (what, url, proxy port,
+/// proxy address) of every call.
+struct FakeChecker {
+    info: Mutex<NetResult<vanta_proxy::IpInfo>>,
+    speed: Mutex<NetResult<vanta_proxy::SpeedResult>>,
+    calls: Mutex<Vec<(String, String, u16, SocketAddr)>>,
+}
+
+impl FakeChecker {
+    fn new() -> Self {
+        Self {
+            info: Mutex::new(Ok(vanta_proxy::IpInfo {
+                ip: Some(ip(EXIT_IP)),
+                asn: Some(64500),
+                org: Some("Example Residential".into()),
+                country: Some("DE".into()),
+            })),
+            speed: Mutex::new(Ok(vanta_proxy::SpeedResult {
+                bytes: 2_000_000,
+                millis: 1600,
+                mbps: 10.0,
+                complete: true,
+            })),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+    fn kinds(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.0.clone())
+            .collect()
+    }
+}
+
+impl ProxyChecker for FakeChecker {
+    fn ip_info<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        _: Duration,
+    ) -> BoxFuture<'a, NetResult<vanta_proxy::IpInfo>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("info".into(), url.to_string(), proxy.port, proxy_addr));
+        let r = self.info.lock().unwrap().clone();
+        Box::pin(async move { r })
+    }
+    fn speed<'a>(
+        &'a self,
+        url: &'a EchoUrl,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        _: Duration,
+    ) -> BoxFuture<'a, NetResult<vanta_proxy::SpeedResult>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("speed".into(), url.to_string(), proxy.port, proxy_addr));
+        let r = self.speed.lock().unwrap().clone();
+        Box::pin(async move { r })
+    }
+    fn udp<'a>(
+        &'a self,
+        proxy: &'a ProxyEndpoint,
+        proxy_addr: SocketAddr,
+        _: Duration,
+    ) -> BoxFuture<'a, vanta_proxy::Check<vanta_proxy::UdpResult>> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(("udp".into(), String::new(), proxy.port, proxy_addr));
+        Box::pin(async {
+            vanta_proxy::Check::Ok {
+                result: vanta_proxy::UdpResult::Unsupported { reply: 7 },
+            }
+        })
+    }
+}
+
 fn deps(engine: Arc<MockEngine>, client_pid: Arc<AtomicU32>, echo: Arc<FakeEcho>) -> Deps {
+    deps_with(engine, client_pid, echo, Arc::new(FakeChecker::new()))
+}
+
+fn deps_with(
+    engine: Arc<MockEngine>,
+    client_pid: Arc<AtomicU32>,
+    echo: Arc<FakeEcho>,
+    checker: Arc<FakeChecker>,
+) -> Deps {
     let members = engine.members.clone();
     Deps {
         spawner: engine,
         net: Arc::new(MockNet),
         ip_echo: echo,
+        checker,
         // Same shape as production (process tree, unknown PIDs refused), with the job
         // membership answered by the mock engine and the PID by the test.
         clients: RelayClients::Custom(Arc::new(move |_job: Arc<KillOnCloseJob>| {
@@ -1249,6 +1344,8 @@ fn app_futures_are_send_for_the_tauri_runtime() {
     send(&f2);
     let f3 = e.app.test_proxy("x");
     send(&f3);
+    let f4 = e.app.inspect_proxy("x", true);
+    send(&f4);
 }
 
 // ---- shell-facing additions: fingerprint view, preview seed, DoH, password change -----
@@ -1929,4 +2026,179 @@ async fn edit_keeps_or_replaces_the_password_and_resets_state() {
         e.app.store_for_tests().get(id).unwrap().proxy_id.as_deref(),
         Some(proxy.as_str())
     );
+}
+
+// ---- Proxy Hub extended check ---------------------------------------------------------
+
+fn env_checker() -> (Env, Arc<FakeChecker>) {
+    let dir = std::env::temp_dir().join(format!("vanta-core-test-{}", uuid::Uuid::new_v4()));
+    let engine = Arc::new(MockEngine::new(ENGINE));
+    let client_pid = Arc::new(AtomicU32::new(0));
+    let echo = Arc::new(FakeEcho::new());
+    let checker = Arc::new(FakeChecker::new());
+    let app = VantaApp::open(
+        config(&dir),
+        deps_with(
+            engine.clone(),
+            client_pid.clone(),
+            echo.clone(),
+            checker.clone(),
+        ),
+    )
+    .unwrap();
+    (
+        Env {
+            dir,
+            app,
+            engine,
+            client_pid,
+            echo,
+        },
+        checker,
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspect_runs_every_check_through_the_proxy_and_keeps_speed() {
+    use vanta_proxy::{Check, Listing, UdpResult};
+    let up = upstream(USER, PASSWORD).await;
+    let (e, checker) = env_checker();
+    let (_id, proxy) = setup(&e, &up);
+    let v = e.app.inspect_proxy(&proxy, false).await.unwrap();
+    assert!(v.state.is_online());
+    let c = v.checks.clone().unwrap();
+    let info = c.exit.ok().unwrap();
+    assert_eq!(
+        (info.ip, info.asn, info.country.as_deref()),
+        (Some(ip(EXIT_IP)), Some(64500), Some("DE"))
+    );
+    assert_eq!(
+        c.udp,
+        Check::Ok {
+            result: UdpResult::Unsupported { reply: 7 }
+        }
+    );
+    // The blocklists were asked through the relay resolver (here a mock that answers every
+    // name with a web address, so no list can be trusted: all unknown, none guessed).
+    let bl = c.blacklist.ok().unwrap();
+    assert_eq!(bl.len(), 4);
+    assert!(bl
+        .iter()
+        .all(|r| matches!(r.listing, Listing::Unknown { .. })));
+    assert_eq!(c.speed, None);
+    // Every call went to the profile's upstream, never anywhere else.
+    for (_, _, port, addr) in checker.calls.lock().unwrap().iter() {
+        assert_eq!((*port, *addr), (up.addr.port(), up.addr));
+    }
+    assert_eq!(checker.kinds(), ["info", "udp"]);
+    let info_call = checker.calls.lock().unwrap()[0].1.clone();
+    assert_eq!(info_call, vanta_proxy::DEFAULT_IP_INFO_URL);
+    // Speed on request; kept by the next run without it.
+    let v = e.app.inspect_proxy(&proxy, true).await.unwrap();
+    let sp = v.checks.unwrap().speed.unwrap();
+    assert_eq!(sp.result.ok().unwrap().mbps, 10.0);
+    assert_eq!(checker.kinds().last().unwrap(), "speed");
+    let v = e.app.inspect_proxy(&proxy, false).await.unwrap();
+    assert_eq!(v.checks.as_ref().unwrap().speed.as_ref(), Some(&sp));
+    assert_eq!(e.app.list_proxies().unwrap()[0].checks, v.checks);
+    // A failing speed test is a status, not an error of the whole check.
+    *checker.speed.lock().unwrap() = Err(NetError::Timeout);
+    let v = e.app.inspect_proxy(&proxy, true).await.unwrap();
+    assert!(matches!(
+        v.checks.unwrap().speed.unwrap().result,
+        Check::Failed { .. }
+    ));
+    // Nothing of it reaches the activity log.
+    assert!(!all_log_details(&e).contains("64500"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspect_handles_missing_fields_failures_and_offline() {
+    use vanta_proxy::Check;
+    let up = upstream(USER, PASSWORD).await;
+    let (e, checker) = env_checker();
+    let (_id, proxy) = setup(&e, &up);
+    // No IP in the JSON: the plain IP echo (through the proxy) fills it in.
+    *checker.info.lock().unwrap() = Ok(vanta_proxy::IpInfo {
+        country: Some("NL".into()),
+        ..Default::default()
+    });
+    let c = e
+        .app
+        .inspect_proxy(&proxy, false)
+        .await
+        .unwrap()
+        .checks
+        .unwrap();
+    let info = c.exit.ok().unwrap();
+    assert_eq!((info.ip, info.asn), (Some(ip(EXIT_IP)), None));
+    assert!(c.blacklist.ok().is_some());
+    assert!(e
+        .echo
+        .exit_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|x| x.1 == up.addr.port()));
+    // The service failing: exit failed, blocklists skipped (no IP), UDP still checked.
+    *checker.info.lock().unwrap() = Err(NetError::Refused(429));
+    let c = e
+        .app
+        .inspect_proxy(&proxy, false)
+        .await
+        .unwrap()
+        .checks
+        .unwrap();
+    assert!(matches!(c.exit, Check::Failed { .. }));
+    assert!(matches!(c.blacklist, Check::Skipped { .. }));
+    assert!(c.udp.ok().is_some());
+    // Configurable URLs, validated.
+    assert!(e
+        .app
+        .set_proxy_check_urls("http://x.example/", "https://s.example/")
+        .is_err());
+    e.app
+        .set_proxy_check_urls("https://ipwho.is/", "https://dl.example/1mb.bin")
+        .unwrap();
+    e.app.inspect_proxy(&proxy, true).await.unwrap();
+    let calls = checker.calls.lock().unwrap().clone();
+    assert!(calls
+        .iter()
+        .any(|c| c.0 == "info" && c.1 == "https://ipwho.is/"));
+    assert!(calls
+        .iter()
+        .any(|c| c.0 == "speed" && c.1 == "https://dl.example/1mb.bin"));
+    // Offline: every sub-check skipped, nothing asked.
+    let n = calls.len();
+    drop(up);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let v = e.app.inspect_proxy(&proxy, false).await.unwrap();
+    assert!(!v.state.is_online());
+    let c = v.checks.unwrap();
+    assert!(matches!(c.exit, Check::Skipped { .. }) && matches!(c.udp, Check::Skipped { .. }));
+    assert_eq!(checker.calls.lock().unwrap().len(), n);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn edit_clears_checks_only_when_the_endpoint_or_login_changes() {
+    let up = upstream(USER, PASSWORD).await;
+    let (e, _checker) = env_checker();
+    let (_id, proxy) = setup(&e, &up);
+    e.app.inspect_proxy(&proxy, false).await.unwrap();
+    let f = |label: &str, port: u16| ProxyForm {
+        scheme: ProxyScheme::Socks5,
+        host: "127.0.0.1".into(),
+        port,
+        label: label.into(),
+        username: Some(USER.into()),
+        preset: None,
+    };
+    let v = e
+        .app
+        .edit_proxy(&proxy, &f("a", up.addr.port()), None)
+        .unwrap();
+    assert!(v.checks.is_some());
+    let v = e.app.edit_proxy(&proxy, &f("a", 1), None).unwrap();
+    assert!(v.checks.is_none());
+    assert!(e.app.inspect_proxy("missing", false).await.is_err());
 }

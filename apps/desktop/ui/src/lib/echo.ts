@@ -2,8 +2,14 @@
  *  final say). The exit IP is asked through the profile's proxy; the PC's own public IP is
  *  asked over a direct connection and only compared, never stored or logged. */
 export const DEFAULT_IP_ECHO_URL = 'https://api.ipify.org/';
+/** Proxy Hub check defaults (vanta_proxy::inspect). Both are only asked through the proxy. */
+export const DEFAULT_IP_INFO_URL = 'https://ipinfo.io/json';
+export const DEFAULT_SPEED_TEST_URL = 'https://speed.cloudflare.com/__down?bytes=2000000';
+/** vanta_proxy::inspect::SPEED_MAX_BYTES: a speed test never downloads more. */
+export const SPEED_MAX_BYTES = 2_000_000;
 
-/** Problem with a user-entered IP echo URL, or null when it looks valid. */
+/** Problem with a user-entered https endpoint URL (IP echo, IP info, speed test), or null
+ *  when it looks valid. */
 export function echoUrlProblem(raw: string): string | null {
   const s = raw.trim();
   if (!s) return null; // empty = the default

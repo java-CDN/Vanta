@@ -33,8 +33,8 @@ use vanta_types::{Result, VantaError};
 /// Default IP echo endpoint: ipify's plain-text API (IPv4, answers `203.0.113.7`).
 pub const DEFAULT_IP_ECHO_URL: &str = "https://api.ipify.org/";
 
-/// Largest echo response read (head and body).
-const MAX_RESPONSE: usize = 16 * 1024;
+/// Largest echo / IP-info response read (head and body).
+pub(crate) const MAX_RESPONSE: usize = 16 * 1024;
 
 /// A validated `https://host[:port][/path]` IP echo URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +135,7 @@ impl EchoUrl {
         &self.path
     }
 
-    fn target(&self) -> TargetAddr {
+    pub(crate) fn target(&self) -> TargetAddr {
         match self.host.parse::<IpAddr>() {
             Ok(ip) => TargetAddr::Ip(SocketAddr::new(ip, self.port)),
             Err(_) => TargetAddr::Domain(self.host.clone(), self.port),
@@ -156,19 +156,25 @@ pub fn parse_echo_body(body: &[u8]) -> NetResult<IpAddr> {
         .map_err(|_| bad())
 }
 
-/// One `GET` over an open (TLS) stream to the echo endpoint.
-pub async fn echo_exchange(mut s: BoxStream, url: &EchoUrl) -> NetResult<IpAddr> {
+/// Send `GET <path>` for `url` with only `Host`, `Accept` and `Connection: close` (nothing
+/// that identifies Vanta or the PC).
+pub(crate) async fn send_get(s: &mut BoxStream, url: &EchoUrl, accept: &str) -> NetResult<()> {
     let host = if url.port == 443 {
         url.host.clone()
     } else {
         format!("{}:{}", url.host, url.port)
     };
     let head = format!(
-        "GET {} HTTP/1.1\r\nHost: {host}\r\nAccept: text/plain\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: {host}\r\nAccept: {accept}\r\nConnection: close\r\n\r\n",
         url.path
     );
     s.write_all(head.as_bytes()).await?;
     s.flush().await?;
+    Ok(())
+}
+
+/// Read a whole response (until the server closes), refusing more than `max` bytes.
+pub(crate) async fn read_capped(s: &mut BoxStream, max: usize, what: &str) -> NetResult<Vec<u8>> {
     let mut raw = Vec::new();
     let mut buf = [0u8; 2048];
     loop {
@@ -176,8 +182,8 @@ pub async fn echo_exchange(mut s: BoxStream, url: &EchoUrl) -> NetResult<IpAddr>
             Ok(0) => break,
             Ok(n) => {
                 raw.extend_from_slice(&buf[..n]);
-                if raw.len() > MAX_RESPONSE {
-                    return Err(NetError::Protocol("IP echo: response too large".into()));
+                if raw.len() > max {
+                    return Err(NetError::Protocol(format!("{what}: response too large")));
                 }
             }
             // Servers that close without TLS close_notify: keep what was read.
@@ -185,12 +191,42 @@ pub async fn echo_exchange(mut s: BoxStream, url: &EchoUrl) -> NetResult<IpAddr>
             Err(e) => return Err(e.into()),
         }
     }
+    Ok(raw)
+}
+
+/// One small `GET`: status 200 and the body, or an error.
+pub(crate) async fn get_body(
+    mut s: BoxStream,
+    url: &EchoUrl,
+    accept: &str,
+    what: &str,
+) -> NetResult<Vec<u8>> {
+    send_get(&mut s, url, accept).await?;
+    let raw = read_capped(&mut s, MAX_RESPONSE, what).await?;
     let (status, body) = parse_http_response(&raw)
-        .map_err(|_| NetError::Protocol("IP echo: malformed HTTP response".into()))?;
+        .map_err(|_| NetError::Protocol(format!("{what}: malformed HTTP response")))?;
     if status != 200 {
         return Err(NetError::Refused(status));
     }
+    Ok(body)
+}
+
+/// One `GET` over an open (TLS) stream to the echo endpoint.
+pub async fn echo_exchange(s: BoxStream, url: &EchoUrl) -> NetResult<IpAddr> {
+    let body = get_body(s, url, "text/plain", "IP echo").await?;
     parse_echo_body(&body)
+}
+
+/// TLS to `url` through a tunnel opened by `proxy` (resolved to `addr`); the proxy
+/// resolves the host name, nothing is resolved locally.
+pub(crate) async fn tls_via_proxy(
+    url: &EchoUrl,
+    proxy: &ProxyEndpoint,
+    addr: SocketAddr,
+    timeout: Duration,
+) -> NetResult<BoxStream> {
+    let tunnel = open_tunnel(proxy, addr, &url.target(), timeout).await?;
+    tls_connect(tunnel, &url.host).await
 }
 
 /// The exit IP of `proxy` (resolved to `addr`): TLS to the echo endpoint through a tunnel
@@ -202,8 +238,7 @@ pub async fn exit_ip_via_proxy(
     timeout: Duration,
 ) -> NetResult<IpAddr> {
     with_timeout(timeout, async {
-        let tunnel = open_tunnel(proxy, addr, &url.target(), timeout).await?;
-        let tls = tls_connect(tunnel, &url.host).await?;
+        let tls = tls_via_proxy(url, proxy, addr, timeout).await?;
         echo_exchange(tls, url).await
     })
     .await

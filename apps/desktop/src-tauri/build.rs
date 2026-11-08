@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "delete_proxy",
     "assign_proxy",
     "test_proxy",
+    "inspect_proxy",
     "launch_profile",
     "stop_profile",
     "running_profiles",

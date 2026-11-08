@@ -35,8 +35,12 @@
 //! and the PC's own addresses (for comparison only; [`IpEcho`]), health lab, the same
 //! launch flow with the lab's switches, collect, score, store the summary, log it.
 //!
+//! **Proxy Hub check** ([`VantaApp::inspect_proxy`]): reachability, then through the proxy
+//! only: exit IP with ASN / organisation / country, SOCKS5 UDP support, DNS blocklists over
+//! DoH through the proxy and, on request, a bounded speed test. Stored with the proxy.
+//!
 //! Test seams: [`EngineSpawner`] (the engine process), [`NetFactory`] (DoH), [`IpEcho`]
-//! (exit and host IP) and, in this crate's own tests only, a custom relay client policy. Release builds can only use
+//! (exit and host IP), [`ProxyChecker`] (Proxy Hub checks) and, in this crate's own tests only, a custom relay client policy. Release builds can only use
 //! [`RelayClients::ProcessTree`].
 
 mod app;
@@ -50,7 +54,8 @@ pub use app::{
     SECRET_SIGNING_KEY,
 };
 pub use deps::{
-    Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, RelayClients,
+    Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, ProxyChecker,
+    ProxyInspector, RelayClients,
 };
 pub use dto::*;
 pub use engine_check::{verify_engine_dir, EngineCheck};

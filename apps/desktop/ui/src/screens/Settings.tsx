@@ -6,7 +6,7 @@ import type { IconName } from '../lib/icons';
 import { AUTOLOCK_OPTIONS } from '../lib/format';
 import { errorText } from '../api/backend';
 import { StrengthBar } from './Lock';
-import { DEFAULT_IP_ECHO_URL, echoUrlProblem } from '../lib/echo';
+import { DEFAULT_IP_ECHO_URL, DEFAULT_IP_INFO_URL, DEFAULT_SPEED_TEST_URL, echoUrlProblem } from '../lib/echo';
 
 type Sec = 'general' | 'security' | 'engine' | 'data' | 'appearance' | 'privacy' | 'about';
 const SECS: [Sec, string, IconName][] = [['general', 'General', 'gear'], ['security', 'Security & vault', 'lock'], ['engine', 'Engine', 'cpu'], ['data', 'Data', 'hdd'], ['appearance', 'Appearance', 'sun'], ['privacy', 'Privacy', 'eye'], ['about', 'About', 'info']];
@@ -43,6 +43,9 @@ export function SettingsScreen() {
   const [enginePath, setEnginePath] = useState(st.engine_path ?? '');
   const [echoUrl, setEchoUrl] = useState(st.ip_echo_url ?? '');
   const echoErr = echoUrlProblem(echoUrl);
+  const [infoUrl, setInfoUrl] = useState(st.ip_info_url ?? '');
+  const [speedUrl, setSpeedUrl] = useState(st.speed_test_url ?? '');
+  const infoErr = echoUrlProblem(infoUrl); const speedErr = echoUrlProblem(speedUrl);
   const [logTotal, setLogTotal] = useState<number | null>(null);
   useEffect(() => { a.b.activityLog({ limit: 1 }).then(r => setLogTotal(r.total)).catch(() => {}); }, [a.b]);
   const set = async (patch: Partial<typeof st>, msg?: ReactNode) => {
@@ -114,13 +117,23 @@ export function SettingsScreen() {
     <div className="chk">Update checks<span className="r pill ok">none · installer only</span></div>
     <div className="chk">Crash reports<span className="r pill">none</span></div>
     <div className="chk">Activity log<span className="r pill">encrypted · this PC only · 90 days</span></div>
-    <div className="note" style={{ marginTop: 10 }}><Icon n="shield" s={13} /><span>Vanta sends no data about you anywhere. Profiles you launch go online only through their proxy. Vanta itself only checks your proxies, resolves names over DNS-over-HTTPS, and asks the IP echo below during a health check.</span></div></div>
+    <div className="note" style={{ marginTop: 10 }}><Icon n="shield" s={13} /><span>Vanta sends no data about you anywhere. Profiles you launch go online only through their proxy. Vanta itself only checks your proxies (the Proxy Hub check services below are asked through the proxy), resolves names over DNS-over-HTTPS, and asks the IP echo below during a health check.</span></div></div>
     <div className="card"><h3><Icon n="globe" s={15} />Health check IP echo</h3>
       <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>A health run asks a plain-text IP echo service which address a request comes from: once through the profile's proxy (the exit IP, checks H01, H07, H17) and once directly (your own public IP). Your own IP is only compared with what the proxy and the page show; it is never stored, logged or sent anywhere else. The service sees the two requests, as any website would.</div>
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="setEcho">IP echo URL (https, answers with the IP only; empty = {DEFAULT_IP_ECHO_URL})</label>
         <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setEcho" style={{ flex: 1 }} value={echoUrl} placeholder={DEFAULT_IP_ECHO_URL} onChange={e => setEchoUrl(e.target.value)} spellCheck={false} />
           <button className="btn" data-a="saveEcho" disabled={!!echoErr || (st.ip_echo_url ?? '') === echoUrl.trim()} onClick={() => set({ ip_echo_url: echoUrl.trim() || null }, 'IP echo URL saved')}>Save</button></div>
         <span className={echoErr ? 'err' : 'dim'} id="echoErr" style={{ fontSize: 11 }}>{echoErr ?? 'Takes effect with the next health run.'}</span></div></div>
+    <div className="card"><h3><Icon n="zap" s={15} />Proxy Hub check</h3>
+      <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>The full check in the Proxy Hub asks these services <b>only through the proxy being checked</b>, never directly, so they see the proxy's exit address and not yours: an IP information service for the exit IP, ASN, organisation and country; on request, a speed test download of at most 2 MB; and the blocklists Spamhaus ZEN, SpamCop, DroneBL and PSBL, asked over DNS-over-HTTPS through the proxy. Spamhaus refuses queries from public resolvers such as Cloudflare, Google and Quad9, so it usually shows as unknown. Results are kept with the proxy on this PC and sent nowhere else.</div>
+      <div className="field" style={{ marginTop: 12 }}><label htmlFor="setInfo">IP information URL (https, JSON answer; empty = {DEFAULT_IP_INFO_URL})</label>
+        <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setInfo" style={{ flex: 1 }} value={infoUrl} placeholder={DEFAULT_IP_INFO_URL} onChange={e => setInfoUrl(e.target.value)} spellCheck={false} />
+          <button className="btn" data-a="saveInfo" disabled={!!infoErr || (st.ip_info_url ?? '') === infoUrl.trim()} onClick={() => set({ ip_info_url: infoUrl.trim() || null }, 'IP information URL saved')}>Save</button></div>
+        <span className={infoErr ? 'err' : 'dim'} id="infoErr" style={{ fontSize: 11 }}>{infoErr ?? 'Fields read: ip, asn / org, country (ipinfo.io, ipwho.is, ip.sb and ip-api style answers). Missing fields show as unknown.'}</span></div>
+      <div className="field" style={{ marginTop: 12 }}><label htmlFor="setSpeed">Speed test URL (https download; empty = {DEFAULT_SPEED_TEST_URL})</label>
+        <div className="row" style={{ gap: 8 }}><input className="inp mono" id="setSpeed" style={{ flex: 1 }} value={speedUrl} placeholder={DEFAULT_SPEED_TEST_URL} onChange={e => setSpeedUrl(e.target.value)} spellCheck={false} />
+          <button className="btn" data-a="saveSpeed" disabled={!!speedErr || (st.speed_test_url ?? '') === speedUrl.trim()} onClick={() => set({ speed_test_url: speedUrl.trim() || null }, 'Speed test URL saved')}>Save</button></div>
+        <span className={speedErr ? 'err' : 'dim'} id="speedErr" style={{ fontSize: 11 }}>{speedErr ?? 'Vanta stops after 2 MB or 20 seconds, whichever comes first.'}</span></div></div>
   </>;
   if (sec === 'about') body = <div className="card"><h3><Icon n="info" s={15} />About Vanta</h3>
     <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 12 }}><div className="brand" style={{ padding: 0 }}><div className="lg" style={{ width: 44, height: 44, borderRadius: 12 }}><Icon n="shield" s={22} /></div></div><div><b style={{ fontSize: 16 }}>Vanta</b><div className="muted">Private multi-profile browser for Windows 10 and 11</div></div></div>

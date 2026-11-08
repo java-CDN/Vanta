@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useApp, type AppCtx } from '../state/store';
 import { Main } from '../components/Shell';
 import { CC, Empty, Icon, OsBadge, Seg, Spin } from '../components/ui';
@@ -8,6 +8,40 @@ import { parseList } from '../lib/proxyparse';
 import { emptyPreset, fitTo, PRESETS_NOTE, PROVIDERS, spec } from '../lib/presets';
 import { errorText } from '../api/backend';
 import { assignWithWarning, ProxyStatus } from './Profiles';
+
+type StepKind = 'ok' | 'bad' | 'warn' | 'pend' | 'run';
+type Step = [string, StepKind, ReactNode];
+
+/** Steps 4-7 of the proxy check from the stored extended check. */
+function checkSteps(x: T.ProxyView, running: boolean, speeding: boolean): Step[] {
+  const c = x.checks;
+  const pend = (label: string, why = ''): Step => [label, running ? 'run' : 'pend', why];
+  const notOk = (label: string, k: T.Check<unknown>): Step => [label, k.status === 'failed' ? 'bad' : 'pend', k.status === 'ok' ? '' : k.reason];
+  if (!c) return [pend('Exit IP · ASN · country', 'not checked yet'), pend('UDP (SOCKS5)'), pend('Blacklists'), [ 'Speed', speeding ? 'run' : 'pend', 'not measured' ]];
+  const out: Step[] = [];
+  if (running) out.push(pend('Exit IP · ASN · country'));
+  else if (c.exit.status === 'ok') {
+    const i = c.exit.result; const want = x.preset?.params.country?.toUpperCase();
+    const mismatch = !!want && !!i.country && i.country !== want;
+    out.push(['Exit IP · ASN · country', mismatch ? 'warn' : 'ok', <span id="pxExit"><CC c={i.country} /> {i.asn != null ? `AS${i.asn}` : 'ASN ?'}{i.org ? ` ${i.org}` : ''}{i.ip ? <span className="mono"> · {i.ip}</span> : ''}{mismatch ? <span className="warn"> · preset asks {want}</span> : ''}</span>]);
+  } else out.push(notOk('Exit IP · ASN · country', c.exit));
+  if (running) out.push(pend('UDP (SOCKS5)'));
+  else if (c.udp.status === 'ok') {
+    const r = c.udp.result;
+    out.push(['UDP (SOCKS5)', r.support === 'supported' ? 'ok' : 'pend', <span id="pxUdp">{r.support === 'supported' ? 'UDP ASSOCIATE supported · QUIC stays off' : r.support === 'unsupported' ? `not supported (reply ${r.reply}) · QUIC stays off` : 'n/a for HTTP proxies'}</span>]);
+  } else out.push(notOk('UDP (SOCKS5)', c.udp));
+  if (running) out.push(pend('Blacklists'));
+  else if (c.blacklist.status === 'ok') {
+    const l = c.blacklist.result; const listed = l.filter(z => z.state === 'listed'); const unknown = l.filter(z => z.state === 'unknown');
+    out.push(['Blacklists', listed.length ? 'bad' : unknown.length === l.length ? 'pend' : unknown.length ? 'warn' : 'ok', <span id="pxBl" title={l.map(z => `${z.name}: ${z.state === 'listed' ? `listed (${z.codes.join(', ')})` : z.state === 'unknown' ? `unknown: ${z.reason}` : 'not listed'}`).join('\n')}>{listed.length ? `listed on ${listed.map(z => z.name).join(', ')}` : `not listed on ${l.length - unknown.length} of ${l.length}`}{unknown.length ? ` · ${unknown.length} unknown` : ''}</span>]);
+  } else out.push(notOk('Blacklists', c.blacklist));
+  const sp = c.speed;
+  if (speeding) out.push(['Speed', 'run', '']);
+  else if (!sp) out.push(['Speed', 'pend', 'not measured']);
+  else if (sp.result.status === 'ok') { const r = sp.result.result; out.push(['Speed', r.mbps < 2 ? 'warn' : 'ok', <span id="pxSpeed">{r.mbps.toFixed(1)} Mbps · {(r.bytes / 1e6).toFixed(1)} MB in {(r.millis / 1000).toFixed(1)} s{r.complete ? '' : ' (cut at the time limit)'}</span>]); }
+  else out.push(notOk('Speed', sp.result));
+  return out;
+}
 
 function ProxyTabs({ active }: { active: 'proxies' | 'geo' }) {
   const a = useApp();
@@ -180,6 +214,7 @@ export function ProxiesScreen() {
   const [fStatus, setFStatus] = useState('');
   const [selId, setSelId] = useState<string | null>(null);
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+  const [inspecting, setInspecting] = useState<Record<string, 'full' | 'speed'>>({});
   const [all, setAll] = useState(false);
   const [assignTo, setAssignTo] = useState('');
   const [flash, setFlash] = useState<string | null>(null);
@@ -196,6 +231,21 @@ export function ProxiesScreen() {
   const test = async (id: string, quiet = false) => {
     setTesting(t => ({ ...t, [id]: true }));
     try { await testOne(a, id, quiet); } catch (e) { if (!quiet) a.fail(e); } finally { setTesting(t => { const n = { ...t }; delete n[id]; return n; }); }
+  };
+  const inspect = async (id: string, speed: boolean) => {
+    setInspecting(m => ({ ...m, [id]: speed ? 'speed' : 'full' }));
+    try {
+      const v = await a.b.inspectProxy(id, speed);
+      await a.refreshProxies();
+      const c = v.checks;
+      if (v.state.state === 'offline') a.toast(<><b>{proxyName(v)}</b> is offline: {offlineReason(v.state.reason)}</>, 'bad', 'zap');
+      else if (speed && c?.speed?.result.status === 'ok') a.toast(<><b>{proxyName(v)}</b> · {c.speed.result.result.mbps.toFixed(1)} Mbps</>, 'ok', 'zap');
+      else if (speed) a.toast(<><b>{proxyName(v)}</b> speed test: {c?.speed && c.speed.result.status !== 'ok' ? c.speed.result.reason : 'no result'}</>, 'warn', 'zap');
+      else {
+        const listed = c?.blacklist.status === 'ok' ? c.blacklist.result.filter(z => z.state === 'listed').length : 0;
+        a.toast(<><b>{proxyName(v)}</b> checked{c?.exit.status === 'ok' && c.exit.result.asn != null ? ` · AS${c.exit.result.asn}` : ''}{listed ? ` · on ${listed} blacklist${listed > 1 ? 's' : ''}` : ''}</>, listed ? 'warn' : 'ok', 'zap');
+      }
+    } catch (e) { a.fail(e); } finally { setInspecting(m => { const n = { ...m }; delete n[id]; return n; }); }
   };
   const testAll = async () => {
     setAll(true);
@@ -228,11 +278,13 @@ export function ProxiesScreen() {
 
   const t = sel ? testing[sel.id] : false;
   const st = sel ? proxyStatus(sel.state) : 'untested';
-  const steps: [string, 'ok' | 'bad' | 'warn' | 'pend' | 'run', string][] = sel ? [
+  const steps: Step[] = sel ? [
     ['TCP connect', t ? 'run' : st === 'untested' ? 'pend' : sel.state.state === 'offline' && (sel.state.reason === 'unreachable' || sel.state.reason === 'timeout') ? 'bad' : 'ok', sel.state.state === 'offline' && !t ? offlineReason(sel.state.reason) : ''],
     [sel.scheme === 'socks5' ? 'SOCKS5 handshake + login' : 'HTTP CONNECT handshake', t ? 'pend' : st === 'untested' ? 'pend' : sel.state.state === 'offline' ? (sel.state.reason === 'auth_failed' || sel.state.reason === 'protocol_error' ? 'bad' : 'pend') : 'ok', sel.state.state === 'offline' && (sel.state.reason === 'auth_failed' || sel.state.reason === 'protocol_error') ? offlineReason(sel.state.reason) : ''],
     ['Round trip', t ? 'pend' : sel.state.state === 'online' ? (st === 'slow' ? 'warn' : 'ok') : 'pend', sel.state.state === 'online' ? `${sel.state.latency_ms} ms` : ''],
   ] : [];
+  const ins = sel ? inspecting[sel.id] : undefined;
+  if (sel) steps.push(...checkSteps(sel, ins === 'full' || ins === 'speed', ins === 'speed'));
   const u = sel ? a.usedBy(sel.id) : [];
   return (
     <Main title="Proxy Hub" sub="HTTP and SOCKS5 proxies from any provider. Passwords stay in the vault; the engine only sees Vanta's local relay."
@@ -281,11 +333,15 @@ export function ProxiesScreen() {
                   try { if (await assignWithWarning(a, p, sel.id)) { await a.refreshProfiles(); a.toast(<><b>{proxyName(sel)}</b> assigned to <b>{p.name}</b> · run a health check before the next launch</>, 'ok', 'link'); } } catch (e) { a.fail(e); }
                 }}><Icon n="link" s={14} />Assign</button>
               </div>
-              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn s" disabled={t} onClick={() => test(sel.id)}><Icon n="zap" s={13} />Test</button><button className="btn s" data-a="pxEdit" onClick={() => openEdit(a, sel)}><Icon n="edit" s={13} />Edit</button><button className="btn s d" onClick={() => del(sel)}><Icon n="trash" s={13} />Delete</button></div>
+              <div className="row" style={{ gap: 8, marginTop: 8 }}><button className="btn s" data-a="pxCheck" disabled={t || !!ins} onClick={() => inspect(sel.id, false)}><Icon n="zap" s={13} />Test</button><button className="btn s" data-a="pxEdit" onClick={() => openEdit(a, sel)}><Icon n="edit" s={13} />Edit</button><button className="btn s d" onClick={() => del(sel)}><Icon n="trash" s={13} />Delete</button></div>
             </div>
-            <div className="card"><h3>Proxy check {t && <span className="r acc"><Spin s={10} /></span>}</h3>
-              {steps.map(([s, k, v], i) => <div key={s} className="step"><span className={`ic ${k === 'run' ? 'pend' : k}`} style={{ width: 18, height: 18 }}>{k === 'ok' ? '✓' : k === 'bad' ? '✕' : k === 'warn' ? '!' : k === 'run' ? <Spin s={9} style={{ borderWidth: 1.5, color: 'var(--accent2)' }} /> : ''}</span>{i + 1}. {s}<span className="r dim">{v}</span></div>)}
-              <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>Exit IP and country are measured by the health check through the relay. ASN, speed, UDP and blacklist steps are not part of this build yet.</div>
+            <div className="card"><h3>Proxy check {(t || ins) && <span className="r acc"><Spin s={10} /></span>}{!t && !ins && sel.checks && <span className="r dim">full check {relDay(sel.checks.checked_ms).toLowerCase()}</span>}</h3>
+              {steps.map(([s, k, v], i) => <div key={s} className="step" style={{ alignItems: 'flex-start' }}><span className={`ic ${k === 'run' ? 'pend' : k}`} style={{ width: 18, height: 18, flex: 'none' }}>{k === 'ok' ? '✓' : k === 'bad' ? '✕' : k === 'warn' ? '!' : k === 'run' ? <Spin s={9} style={{ borderWidth: 1.5, color: 'var(--accent2)' }} /> : ''}</span><span style={{ flex: 'none' }}>{i + 1}. {s}</span><span className="r dim" style={{ textAlign: 'right', minWidth: 0, overflowWrap: 'anywhere', fontSize: 11.5 }}>{v}</span></div>)}
+              <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                <button className="btn s" data-a="pxFull" disabled={t || !!ins} onClick={() => inspect(sel.id, false)}>{ins === 'full' ? <Spin s={11} /> : <Icon n="shield" s={13} />}Full check</button>
+                <button className="btn s" data-a="pxSpeed" disabled={t || !!ins} title="Downloads at most 2 MB through this proxy" onClick={() => inspect(sel.id, true)}>{ins === 'speed' ? <Spin s={11} /> : <Icon n="pulse" s={13} />}Speed test</button>
+              </div>
+              <div className="dim" style={{ fontSize: 11.5, marginTop: 8 }}>Every step goes through this proxy, never directly. Blacklists are asked over DNS-over-HTTPS through the proxy; a list that refuses public resolvers (Spamhaus) shows as unknown rather than a guess. The speed test downloads at most 2 MB. Results stay with this proxy on this PC.</div>
             </div>
           </>}
           <div className="card"><h3><Icon n="import" s={15} />Import</h3><div className="note"><Icon n="zap" s={13} /><span>Paste <span className="mono">host:port:user:pass</span> or <span className="mono">socks5://user:pass@host:port</span>, one per line. Usernames in a pasted list are kept as written; use <b>One proxy · provider preset</b> to build a sticky-session username for Bright Data, SOAX, Geonode, DataImpulse, Webshare or Thordata.</span></div>

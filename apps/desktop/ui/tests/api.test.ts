@@ -48,6 +48,7 @@ describe('tauri api mapping', () => {
       [x => x.deleteProxy('p1'), 'delete_proxy', { proxyId: 'p1' }],
       [x => x.assignProxy(ID, null), 'assign_proxy', { profileId: ID, proxyId: null }],
       [x => x.testProxy('p1'), 'test_proxy', { proxyId: 'p1' }],
+      [x => x.inspectProxy('p1', true), 'inspect_proxy', { proxyId: 'p1', speed: true }],
       [x => x.launchProfile(ID), 'launch_profile', { id: ID }],
       [x => x.launchProfile(ID, true), 'launch_profile', { id: ID, confirmed: true }],
       [x => x.stopProfile(ID), 'stop_profile', { id: ID }],
@@ -57,7 +58,7 @@ describe('tauri api mapping', () => {
       [x => x.setDohProvider(ID, 'quad9'), 'set_doh_provider', { id: ID, doh: 'quad9' }],
       [x => x.activityLog({ kinds: ['health_run'], limit: 12 }), 'activity_log', { query: { kinds: ['health_run'], limit: 12 } }],
       [x => x.getSettings(), 'get_settings', undefined],
-      [x => x.setSettings({ autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null }), 'set_settings', { settings: { autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null } }],
+      [x => x.setSettings({ autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null, ip_info_url: null, speed_test_url: null }), 'set_settings', { settings: { autolock_minutes: 5, theme: 'dark', max_launch: 12, confirm_delete: true, engine_path: null, ip_echo_url: null, ip_info_url: null, speed_test_url: null } }],
       [x => x.reportActivity(), 'report_activity', undefined],
       [x => x.quit(), 'quit_app', undefined],
     ];

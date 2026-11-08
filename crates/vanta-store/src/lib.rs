@@ -17,6 +17,9 @@
 //! Schema 3 adds `proxies.preset`: the provider preset (JSON of
 //! `vanta_proxy::ProviderPreset`, no password) a Proxy Hub entry's username is built from.
 //!
+//! Schema 4 adds `proxies.checks`: the last extended Proxy Hub check (JSON of
+//! `vanta_proxy::ProxyChecks`: exit IP / ASN / country, UDP, blocklists, speed).
+//!
 //! Before schema 2 a profile's `proxy_id` could hold an inline proxy line (with its
 //! password). [`Store::legacy_inline_proxies`] lists such rows so the app can move the
 //! password into the vault on the next unlock; [`Store::compact`] then rewrites the file so
@@ -29,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use vanta_types::{OsKind, ProfileId, ProfileStatus, Result, VantaError};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const MIGRATION_1: &str = r#"
 CREATE TABLE profiles (
@@ -102,6 +105,7 @@ CREATE TABLE health_reports (
 "#;
 
 const MIGRATION_3: &str = "ALTER TABLE proxies ADD COLUMN preset TEXT;";
+const MIGRATION_4: &str = "ALTER TABLE proxies ADD COLUMN checks TEXT;";
 
 /// One Proxy Hub entry. Holds no password: `secret_ref` names the vault secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +125,9 @@ pub struct ProxyRecord {
     /// Provider preset the username is built from (JSON of `vanta_proxy::ProviderPreset`).
     #[serde(default)]
     pub preset: Option<String>,
+    /// Last extended check (JSON of `vanta_proxy::ProxyChecks`).
+    #[serde(default)]
+    pub checks: Option<String>,
 }
 
 /// Summary of a profile's last health run.
@@ -316,6 +323,10 @@ impl Store {
         if v < 3 {
             conn.execute_batch(MIGRATION_3).map_err(db)?;
             conn.pragma_update(None, "user_version", 3).map_err(db)?;
+        }
+        if v < 4 {
+            conn.execute_batch(MIGRATION_4).map_err(db)?;
+            conn.pragma_update(None, "user_version", 4).map_err(db)?;
         }
         Ok(Self { conn })
     }
@@ -565,7 +576,7 @@ impl Store {
         let tx = self.conn.transaction().map_err(db)?;
         {
             let mut st = tx
-                .prepare("INSERT INTO proxies (id,scheme,host,port,username,secret_ref,label,state,created_ms,preset) VALUES (?,?,?,?,?,?,?,?,?,?)")
+                .prepare("INSERT INTO proxies (id,scheme,host,port,username,secret_ref,label,state,created_ms,preset,checks) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
                 .map_err(db)?;
             for p in items {
                 st.execute(params![
@@ -578,7 +589,8 @@ impl Store {
                     p.label,
                     p.state,
                     p.created_ms,
-                    p.preset
+                    p.preset,
+                    p.checks
                 ])
                 .map_err(db)?;
             }
@@ -599,13 +611,14 @@ impl Store {
             state: r.get(7)?,
             created_ms: r.get(8)?,
             preset: r.get(9)?,
+            checks: r.get(10)?,
         })
     }
 
     pub fn get_proxy(&self, id: &str) -> Result<ProxyRecord> {
         self.conn
             .query_row(
-                "SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset FROM proxies WHERE id=?",
+                "SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset,checks FROM proxies WHERE id=?",
                 [id],
                 Self::row_proxy,
             )
@@ -617,7 +630,7 @@ impl Store {
     pub fn list_proxies(&self) -> Result<Vec<ProxyRecord>> {
         let mut st = self
             .conn
-            .prepare("SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset FROM proxies ORDER BY created_ms, id")
+            .prepare("SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset,checks FROM proxies ORDER BY created_ms, id")
             .map_err(db)?;
         let rows = st.query_map([], Self::row_proxy).map_err(db)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db)
@@ -644,7 +657,7 @@ impl Store {
         let tx = self.conn.transaction().map_err(db)?;
         let old = tx
             .query_row(
-                "SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset FROM proxies WHERE id=?",
+                "SELECT id,scheme,host,port,username,secret_ref,label,state,created_ms,preset,checks FROM proxies WHERE id=?",
                 [&p.id],
                 Self::row_proxy,
             )
@@ -662,7 +675,7 @@ impl Store {
                 .map_err(db)?;
         }
         tx.execute(
-            "UPDATE proxies SET scheme=?, host=?, port=?, username=?, secret_ref=?, label=?, state=?, preset=? WHERE id=?",
+            "UPDATE proxies SET scheme=?, host=?, port=?, username=?, secret_ref=?, label=?, state=?, preset=?, checks=? WHERE id=?",
             params![
                 p.scheme,
                 p.host,
@@ -672,11 +685,27 @@ impl Store {
                 p.label,
                 p.state,
                 p.preset,
+                p.checks,
                 p.id
             ],
         )
         .map_err(db)?;
         tx.commit().map_err(db)
+    }
+
+    /// Store the last extended check (JSON of `vanta_proxy::ProxyChecks`).
+    pub fn set_proxy_checks(&self, id: &str, checks_json: Option<&str>) -> Result<()> {
+        match self
+            .conn
+            .execute(
+                "UPDATE proxies SET checks=? WHERE id=?",
+                params![checks_json, id],
+            )
+            .map_err(db)?
+        {
+            0 => Err(VantaError::NotFound(format!("proxy {id}"))),
+            _ => Ok(()),
+        }
     }
 
     /// Delete a proxy, its sealed password, and every profile's link to it.
@@ -1088,7 +1117,27 @@ mod tests {
             state: r#"{"state":"unknown"}"#.into(),
             created_ms: 1,
             preset: None,
+            checks: None,
         }
+    }
+
+    #[test]
+    fn proxy_checks_are_stored_and_cleared() {
+        let mut s = sample();
+        s.insert_proxies(&[proxy("p1")]).unwrap();
+        s.set_proxy_checks("p1", Some(r#"{"checked_ms":1}"#))
+            .unwrap();
+        assert_eq!(
+            s.get_proxy("p1").unwrap().checks.as_deref(),
+            Some(r#"{"checked_ms":1}"#)
+        );
+        s.set_proxy_checks("p1", None).unwrap();
+        assert_eq!(s.get_proxy("p1").unwrap().checks, None);
+        assert!(s.set_proxy_checks("nope", None).is_err());
+        let mut r = s.get_proxy("p1").unwrap();
+        r.checks = Some("{}".into());
+        s.update_proxy(&r).unwrap();
+        assert_eq!(s.get_proxy("p1").unwrap(), r);
     }
 
     #[test]
@@ -1224,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_2_proxies_survive_migration_3() {
+    fn schema_2_proxies_survive_migrations_3_and_4() {
         let dir = std::env::temp_dir().join(format!("vanta-store-v2-{}", ProfileId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.db");
@@ -1241,7 +1290,10 @@ mod tests {
         }
         let s = Store::open(&path).unwrap();
         let p = s.get_proxy("p1").unwrap();
-        assert_eq!((p.host.as_str(), p.preset), ("192.0.2.1", None));
+        assert_eq!(
+            (p.host.as_str(), p.preset, p.checks),
+            ("192.0.2.1", None, None)
+        );
         drop(s);
         std::fs::remove_dir_all(dir).ok();
     }

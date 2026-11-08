@@ -13,11 +13,16 @@
 //!   against the profile's engine process tree; Windows `GetExtendedTcpTable`).
 //! - [`echo`]: IP echo for health runs: the exit IP through the proxy, the PC's own public
 //!   IP over a direct connection (compared only, never sent elsewhere or logged).
+//! - [`inspect`]: Proxy Hub extended checks through the proxy under test: exit IP with
+//!   ASN / organisation / country, bounded speed test, SOCKS5 UDP support, DNS blocklists
+//!   (with RFC 5782 test entries, so a refusing public resolver reads `unknown`).
 //! - [`relay`]: the tokio relay on `127.0.0.1:<ephemeral>` the engine points at, with the
 //!   fail-closed kill switch.
 //!
 //! Local-only: the only outbound connections are to the user's configured proxy, the DoH
-//! provider and, during a health run, the configured IP echo endpoint. TLS is rustls with the ring provider (no OpenSSL).
+//! provider, during a health run the configured IP echo endpoint and, during a Proxy Hub
+//! check (through the proxy under test), the IP information and speed test endpoints and the
+//! blocklists' DNS names. TLS is rustls with the ring provider (no OpenSSL).
 
 pub mod assign;
 pub mod clients;
@@ -25,6 +30,7 @@ pub mod doh;
 pub mod echo;
 pub mod endpoint;
 pub mod guard;
+pub mod inspect;
 pub mod net;
 pub mod provider;
 pub mod relay;
@@ -39,6 +45,10 @@ pub use doh::{DohProvider, DohResolver, DohRoute, Resolver};
 pub use echo::{EchoUrl, DEFAULT_IP_ECHO_URL};
 pub use endpoint::{parse_line, parse_list, Credentials, ImportReport, ProxyEndpoint, ProxyScheme};
 pub use guard::{GuardPolicy, KillSwitch, WebRtcPolicy};
+pub use inspect::{
+    Check, DnsblResult, IpInfo, Listing, ProxyChecks, SpeedResult, SpeedRun, UdpResult,
+    DEFAULT_IP_INFO_URL, DEFAULT_SPEED_TEST_URL, DNSBL_ZONES,
+};
 pub use provider::{
     build_username, build_username_for, session_id, session_id_for, Provider, ProviderPreset,
     ProviderSpec, SessionKey, SessionParams, PROVIDER_PRESETS_VERIFIED_LIVE,

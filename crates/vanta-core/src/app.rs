@@ -24,9 +24,10 @@ use vanta_launcher::{
 use vanta_log::{ActivityLog, LogFilter, LogKind};
 use vanta_proxy::state::{now_ms, MAX_CHECK_AGE_MS};
 use vanta_proxy::{
-    check_assignment, parse_line, parse_list, probe, resolve_upstream, Credentials, DohProvider,
-    EchoUrl, GuardPolicy, ProviderPreset, ProxyEndpoint, ProxyScheme, ProxyState, Relay,
-    RelayConfig, RelayEvent, Resolver, DEFAULT_HEARTBEAT,
+    check_assignment, parse_line, parse_list, probe, resolve_upstream, Check, Credentials,
+    DohProvider, EchoUrl, GuardPolicy, ProviderPreset, ProxyChecks, ProxyEndpoint, ProxyScheme,
+    ProxyState, Relay, RelayConfig, RelayEvent, Resolver, SpeedRun, DEFAULT_HEARTBEAT,
+    DEFAULT_IP_INFO_URL, DEFAULT_SPEED_TEST_URL, DNSBL_ZONES,
 };
 use vanta_store::{HealthSummary, ProfileMeta, ProfileSecrets, ProxyRecord, Store};
 use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus, VantaError};
@@ -69,6 +70,10 @@ pub struct AppConfig {
     /// own public IP over a direct connection, compared only). Changeable at run time with
     /// [`VantaApp::set_ip_echo_url`].
     pub ip_echo_url: EchoUrl,
+    /// JSON IP information endpoint for the Proxy Hub check (asked through the proxy).
+    pub ip_info_url: EchoUrl,
+    /// Speed test download for the Proxy Hub check (through the proxy, capped).
+    pub speed_test_url: EchoUrl,
 }
 
 impl AppConfig {
@@ -82,6 +87,8 @@ impl AppConfig {
             proxy_timeout: Duration::from_secs(10),
             heartbeat: DEFAULT_HEARTBEAT,
             ip_echo_url: EchoUrl::default(),
+            ip_info_url: EchoUrl::parse(DEFAULT_IP_INFO_URL).expect("valid default"),
+            speed_test_url: EchoUrl::parse(DEFAULT_SPEED_TEST_URL).expect("valid default"),
         }
     }
 }
@@ -129,6 +136,8 @@ struct Inner {
     procs: Mutex<ProcessTable>,
     running: Mutex<HashMap<ProfileId, Running>>,
     ip_echo_url: Mutex<EchoUrl>,
+    /// (IP information URL, speed test URL) of the Proxy Hub check.
+    check_urls: Mutex<(EchoUrl, EchoUrl)>,
     /// Consecutive failed launches per profile and the last failure (this session).
     failed_launches: Mutex<HashMap<ProfileId, (u32, String)>>,
     engine_check: Mutex<EngineCheck>,
@@ -192,9 +201,11 @@ impl VantaApp {
             Err(e) => return Err(storage("vault header", e)),
         };
         let ip_echo_url = Mutex::new(cfg.ip_echo_url.clone());
+        let check_urls = Mutex::new((cfg.ip_info_url.clone(), cfg.speed_test_url.clone()));
         Ok(Self {
             inner: Arc::new(Inner {
                 ip_echo_url,
+                check_urls,
                 failed_launches: Mutex::new(HashMap::new()),
                 engine_check: Mutex::new(EngineCheck::NotBundled),
                 cfg,
@@ -229,6 +240,21 @@ impl VantaApp {
     /// The IP echo endpoint health runs use.
     pub fn ip_echo_url(&self) -> String {
         lock(&self.inner.ip_echo_url).to_string()
+    }
+
+    /// (IP information URL, speed test URL) the Proxy Hub check uses.
+    pub fn proxy_check_urls(&self) -> (String, String) {
+        let u = lock(&self.inner.check_urls);
+        (u.0.to_string(), u.1.to_string())
+    }
+
+    /// Change the Proxy Hub check endpoints (both `https://host[:port][/path]`; both are
+    /// only ever asked through the proxy under test).
+    pub fn set_proxy_check_urls(&self, ip_info: &str, speed_test: &str) -> CoreResult<()> {
+        let a = EchoUrl::parse(ip_info)?;
+        let b = EchoUrl::parse(speed_test)?;
+        *lock(&self.inner.check_urls) = (a, b);
+        Ok(())
     }
 
     /// Change the IP echo endpoint (`https://host[:port][/path]`, plain-text answer).
@@ -751,6 +777,10 @@ impl VantaApp {
                 .preset
                 .as_deref()
                 .and_then(|j| serde_json::from_str(j).ok()),
+            checks: r
+                .checks
+                .as_deref()
+                .and_then(|j| serde_json::from_str(j).ok()),
         }
     }
 
@@ -786,6 +816,7 @@ impl VantaApp {
             state: serde_json::to_string(&ProxyState::Unknown).expect("state serializes"),
             created_ms: now_ms(),
             preset: None,
+            checks: None,
         })
     }
 
@@ -913,6 +944,12 @@ impl VantaApp {
                 old.state.clone()
             },
             preset: preset.map(|p| serde_json::to_string(&p).expect("preset serializes")),
+            // Results of the old endpoint or login say nothing about the new one.
+            checks: if login_changed || endpoint_changed {
+                None
+            } else {
+                old.checks.clone()
+            },
             ..old
         };
         {
@@ -1069,6 +1106,104 @@ impl VantaApp {
         Ok(Self::proxy_view(
             &lock(&self.inner.store).get_proxy(proxy_id)?,
         ))
+    }
+
+    /// The extended Proxy Hub check: reachability (as [`VantaApp::test_proxy`]), then,
+    /// strictly through the proxy, the exit IP with ASN / organisation / country, SOCKS5 UDP
+    /// support, the DNS blocklists (DoH through the proxy) and, when `speed` is set, a
+    /// bounded speed test (otherwise the last speed result is kept). Every sub-check has its
+    /// own time limit and status. The result is stored with the proxy and nowhere else.
+    pub async fn inspect_proxy(&self, proxy_id: &str, speed: bool) -> CoreResult<ProxyView> {
+        self.require_unlocked()?;
+        let rec = lock(&self.inner.store).get_proxy(proxy_id)?;
+        let ep = self.endpoint(&rec)?;
+        let policy = GuardPolicy::default();
+        let old: Option<ProxyChecks> = rec
+            .checks
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok());
+        let state = self.check_proxy(proxy_id, &ep, &policy).await?;
+        let skip_all = |why: &str, speed_now: bool| ProxyChecks {
+            checked_ms: now_ms(),
+            exit: Check::skipped(why),
+            udp: Check::skipped(why),
+            blacklist: Check::skipped(why),
+            speed: if speed_now {
+                Some(SpeedRun {
+                    checked_ms: now_ms(),
+                    result: Check::skipped(why),
+                })
+            } else {
+                old.clone().and_then(|o| o.speed)
+            },
+        };
+        let bootstrap = self.inner.deps.net.bootstrap(&policy);
+        let addr = if state.is_online() {
+            resolve_upstream(&ep, &*bootstrap)
+                .await
+                .map_err(|_| "proxy host did not resolve")
+        } else {
+            Err("proxy offline")
+        };
+        let checks = match addr {
+            Err(why) => skip_all(why, speed),
+            Ok(addr) => {
+                let (info_url, speed_url) = lock(&self.inner.check_urls).clone();
+                let t = self.inner.cfg.proxy_timeout;
+                let deps = &self.inner.deps;
+                let (info, udp) = tokio::join!(
+                    deps.checker.ip_info(&info_url, &ep, addr, t),
+                    deps.checker.udp(&ep, addr, t),
+                );
+                let mut exit = Check::from_net(info);
+                // An answer without the IP: ask the plain IP echo (also through the proxy).
+                if let Check::Ok { result } = &mut exit {
+                    if result.ip.is_none() {
+                        let echo_url = lock(&self.inner.ip_echo_url).clone();
+                        result.ip = deps.ip_echo.exit_ip(&echo_url, &ep, addr, t).await.ok();
+                    }
+                }
+                let blacklist = match exit.ok().and_then(|i| i.ip) {
+                    Some(ip) => {
+                        let resolver = deps.net.relay_resolver(&policy, &ep, addr);
+                        Check::Ok {
+                            result: vanta_proxy::inspect::dnsbl_check(
+                                resolver,
+                                ip,
+                                &DNSBL_ZONES,
+                                vanta_proxy::inspect::DNSBL_TIMEOUT,
+                            )
+                            .await,
+                        }
+                    }
+                    None => Check::skipped("exit IP unknown"),
+                };
+                // Last, so the other checks do not share the line with the download.
+                let speed = if speed {
+                    let r = deps
+                        .checker
+                        .speed(&speed_url, &ep, addr, vanta_proxy::inspect::SPEED_TIMEOUT)
+                        .await;
+                    Some(SpeedRun {
+                        checked_ms: now_ms(),
+                        result: Check::from_net(r),
+                    })
+                } else {
+                    old.and_then(|o| o.speed)
+                };
+                ProxyChecks {
+                    checked_ms: now_ms(),
+                    exit,
+                    udp,
+                    blacklist,
+                    speed,
+                }
+            }
+        };
+        let json = serde_json::to_string(&checks).expect("checks serialize");
+        let store = lock(&self.inner.store);
+        store.set_proxy_checks(proxy_id, Some(&json))?;
+        Ok(Self::proxy_view(&store.get_proxy(proxy_id)?))
     }
 
     /// Schema-1 rows could hold an inline proxy line (with its password) in `proxy_id`.

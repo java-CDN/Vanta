@@ -30,6 +30,7 @@
     "allow-delete-proxy",
     "allow-assign-proxy",
     "allow-test-proxy",
+    "allow-inspect-proxy",
     "allow-launch-profile",
     "allow-stop-profile",
     "allow-running-profiles",

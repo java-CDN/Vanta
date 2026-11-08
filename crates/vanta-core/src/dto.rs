@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use vanta_fingerprint::SurfaceMode;
 use vanta_log::{LogEntry, LogKind};
-use vanta_proxy::{ProviderPreset, ProxyScheme, ProxyState};
+use vanta_proxy::{ProviderPreset, ProxyChecks, ProxyScheme, ProxyState};
 use vanta_store::{HealthSummary, ProfileMeta};
 use vanta_types::{OsKind, ProfileId, ProfileStatus};
 
@@ -114,6 +114,8 @@ pub struct ProxyView {
     pub display: String,
     /// Provider preset the username is built from (no password; that stays in the vault).
     pub preset: Option<ProviderPreset>,
+    /// Last extended check (exit IP / ASN / country, UDP, blocklists, speed).
+    pub checks: Option<ProxyChecks>,
 }
 
 /// The non-secret fields of a Proxy Hub entry, as typed into the add / edit form. With a

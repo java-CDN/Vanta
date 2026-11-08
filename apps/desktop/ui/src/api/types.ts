@@ -105,6 +105,23 @@ export interface ProxyView {
   state: ProxyState;
   display: string;
   preset: ProviderPreset | null;
+  /** Last extended check (inspectProxy). */
+  checks: ProxyChecks | null;
+}
+
+/** One sub-check of the extended Proxy Hub check (vanta_proxy::inspect::Check). */
+export type Check<R> = { status: 'ok'; result: R } | { status: 'failed'; reason: string } | { status: 'skipped'; reason: string };
+export interface IpInfo { ip: string | null; asn: number | null; org: string | null; country: string | null }
+export interface SpeedResult { bytes: number; millis: number; mbps: number; complete: boolean }
+export type UdpResult = { support: 'supported' } | { support: 'unsupported'; reply: number } | { support: 'not_socks5' };
+export type DnsblResult = { zone: string; name: string } & ({ state: 'listed'; codes: string[] } | { state: 'not_listed' } | { state: 'unknown'; reason: string });
+export interface ProxyChecks {
+  checked_ms: number;
+  exit: Check<IpInfo>;
+  udp: Check<UdpResult>;
+  blacklist: Check<DnsblResult[]>;
+  /** Only run on request; kept from the last speed test otherwise. */
+  speed: { checked_ms: number; result: Check<SpeedResult> } | null;
 }
 
 /** Non-secret fields of the add / edit form (vanta_core::ProxyForm). With a preset the
@@ -248,6 +265,10 @@ export interface Settings {
   engine_path: string | null;
   /** Plain-text IP echo endpoint for health runs; null = the default (api.ipify.org). */
   ip_echo_url: string | null;
+  /** JSON IP information endpoint for the Proxy Hub check; null = ipinfo.io/json. */
+  ip_info_url: string | null;
+  /** Speed test download for the Proxy Hub check; null = Cloudflare's 2 MB download. */
+  speed_test_url: string | null;
 }
 
 export type CoreError =

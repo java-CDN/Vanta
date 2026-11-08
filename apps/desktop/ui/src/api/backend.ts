@@ -36,6 +36,9 @@ export interface Backend {
   deleteProxy(proxyId: string): Promise<void>;
   assignProxy(profileId: string, proxyId: string | null): Promise<T.AssignResult>;
   testProxy(proxyId: string): Promise<T.ProxyView>;
+  /** Reachability, then through the proxy: exit IP / ASN / country, UDP, blocklists and,
+   *  with `speed`, a bounded speed test. Stored with the proxy only. */
+  inspectProxy(proxyId: string, speed: boolean): Promise<T.ProxyView>;
   // launch & health
   /** `confirmed`: the user confirmed one more attempt after repeated failed launches
    *  (the plain call rejects with `confirm_required` then; see MAX_FAILED_LAUNCHES). */

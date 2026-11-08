@@ -174,6 +174,19 @@ await check('edit proxy: preset kept, password stays in the vault', async () => 
   const refused = await until(async () => (await page.locator('#pfErr').innerText()).length > 0, 2000);
   return shown && secretHidden && kept && pwEmpty && saved && refused;
 });
+await check('full proxy check: exit ASN, UDP, blacklists through the proxy', async () => {
+  await rowOf('geo-de-1').click(); await sleep(100);
+  await page.click('.pxside [data-a=pxFull]');
+  const ok = await until(async () => (await page.locator('#pxExit').innerText()).includes('AS') && (await page.locator('#pxBl').innerText()).includes('of 4'), 5000);
+  const udp = (await page.locator('#pxUdp').innerText()).length > 0;
+  const unknown = (await page.locator('#pxBl').innerText()).includes('1 unknown');
+  return ok && udp && unknown && (await toasts()).includes('checked');
+});
+await check('speed test on request (Mbps)', async () => {
+  const before = await page.locator('#pxSpeed').count();
+  await page.click('.pxside [data-a=pxSpeed]');
+  return before === 0 && await until(async () => (await page.locator('#pxSpeed').innerText()).includes('Mbps') && (await toasts()).includes('Mbps'), 6000);
+});
 await check('assign proxy (shared warning)', async () => {
   await rows().first().click(); await sleep(100);
   await page.locator('#pxAssign').selectOption({ index: 3 }); await page.click('[data-a=pxAssign]'); await sleep(200);
@@ -203,6 +216,7 @@ await check('export (with plain-file warning)', async () => { await page.click('
 await check('autolock change → footer', async () => { await go('settings'); await page.click('[data-a=setSec][data-id=security]'); await sleep(100); await page.selectOption('#setAutolock', '5'); return until(async () => (await page.locator('#vaultlbl').innerText()).includes('5 min')); });
 await check('change password validation', async () => { await page.click('[data-a=changePw]'); await page.fill('#cpOld', 'hunter2'); await page.fill('#cpNew', 'short'); await page.fill('#cpNew2', 'short'); await page.click('[data-a=cpSave]'); await sleep(80); const ok = (await page.locator('#cpErr').innerText()).includes('12'); await page.keyboard.press('Escape'); return ok; });
 await check('engine version read-only, path setting', async () => { await page.click('[data-a=setSec][data-id=engine]'); await sleep(100); const t = await body(); return t.includes('156.0.8078.79') && t.includes('vanta-chromium.exe') && (await page.locator('#setEngine').count()) === 1; });
+await check('Proxy Hub check URLs (privacy)', async () => { await page.click('[data-a=setSec][data-id=privacy]'); await sleep(100); const shown = (await body()).includes('ipinfo.io/json') && (await body()).includes('only through the proxy being checked'); await page.fill('#setSpeed', 'http://dl.example/x'); await sleep(60); const refused = (await page.locator('[data-a=saveSpeed]').isDisabled()) && (await page.locator('#speedErr').innerText()).includes('https://'); await page.fill('#setInfo', 'https://ipwho.is/'); await page.click('[data-a=saveInfo]'); const saved = await until(async () => (await toasts()).includes('IP information URL saved')); await page.fill('#setInfo', ''); await page.click('[data-a=saveInfo]'); await page.fill('#setSpeed', ''); await sleep(80); return shown && refused && saved; });
 await check('IP echo URL setting (privacy)', async () => { await page.click('[data-a=setSec][data-id=privacy]'); await sleep(100); if (!(await body()).includes('api.ipify.org')) return false; await page.fill('#setEcho', 'http://icanhazip.com/'); await sleep(60); const refused = (await page.locator('[data-a=saveEcho]').isDisabled()) && (await page.locator('#echoErr').innerText()).includes('https://'); await page.fill('#setEcho', 'https://icanhazip.com/'); await sleep(60); await page.click('[data-a=saveEcho]'); const saved = await until(async () => (await toasts()).includes('IP echo URL saved')); await page.fill('#setEcho', ''); await page.click('[data-a=saveEcho]'); await sleep(80); return refused && saved; });
 await check('theme switch', async () => { await page.click('[data-a=setSec][data-id=appearance]'); await sleep(80); await page.click('.seg [data-a=setTheme][data-id=light]'); await sleep(150); return (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light'; });
 await page.screenshot({ path: path.join(shots, '10-settings-light.png') }).catch(() => {});

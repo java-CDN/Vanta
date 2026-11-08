@@ -38,6 +38,8 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
     };
     let mut cfg = AppConfig::new(&data_dir, engine);
     cfg.ip_echo_url = settings.echo_url();
+    cfg.ip_info_url = settings.info_url();
+    cfg.speed_test_url = settings.speed_url();
     let app = VantaApp::open(cfg, Deps::production()).map_err(|e| e.to_string())?;
     check_engine(&app, &engine_path);
     Ok(Shell {
@@ -119,6 +121,7 @@ fn main() {
             commands::delete_proxy,
             commands::assign_proxy,
             commands::test_proxy,
+            commands::inspect_proxy,
             commands::launch_profile,
             commands::stop_profile,
             commands::running_profiles,
