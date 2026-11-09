@@ -33,6 +33,9 @@ use vanta_store::{HealthSummary, ProfileMeta, ProfileSecrets, ProxyRecord, Store
 use vanta_types::{EngineVersion, OsKind, ProfileId, ProfileStatus, VantaError};
 use vanta_vault::{KdfParams, Sealed, Vault, VaultHeader, WrappedKey};
 
+mod geo;
+pub use geo::GeoState;
+
 /// Vault secret holding the launcher's Ed25519 signing key (32-byte seed).
 pub const SECRET_SIGNING_KEY: &str = "launcher/ed25519";
 /// Vault secret holding the activity log's head hash.
@@ -141,6 +144,8 @@ struct Inner {
     /// Consecutive failed launches per profile and the last failure (this session).
     failed_launches: Mutex<HashMap<ProfileId, (u32, String)>>,
     engine_check: Mutex<EngineCheck>,
+    /// The offline GeoIP database (Geo Auto-Match, F07).
+    geo: Mutex<GeoState>,
 }
 
 /// The Vanta backend: profiles, proxies, vault, launches, health runs and the activity
@@ -208,6 +213,7 @@ impl VantaApp {
                 check_urls,
                 failed_launches: Mutex::new(HashMap::new()),
                 engine_check: Mutex::new(EngineCheck::NotBundled),
+                geo: Mutex::new(GeoState::NotBundled),
                 cfg,
                 deps,
                 log: Mutex::new(LogState {
@@ -1352,8 +1358,9 @@ impl VantaApp {
             rules_passed: rule_problem.is_none(),
             health,
         };
-        if let Err(blocks) = preflight(&gate, now) {
-            let reasons = blocks
+        let mut reasons: Vec<BlockReason> = match preflight(&gate, now) {
+            Ok(()) => Vec::new(),
+            Err(blocks) => blocks
                 .iter()
                 .map(|b| match (b, &rule_problem) {
                     (Block::RulesFailed, Some(msg)) => {
@@ -1361,7 +1368,13 @@ impl VantaApp {
                     }
                     _ => BlockReason::from_block(b),
                 })
-                .collect();
+                .collect(),
+        };
+        // C018 against the exit IP: the profile's country must be the proxy's (F07).
+        if matches!(mode, Mode::Launch) {
+            reasons.extend(self.geo_launch_problem(p));
+        }
+        if !reasons.is_empty() {
             return Err(self.block(id, reasons));
         }
         let relay = relay.expect("gate passed, so the proxy is online and the relay runs");
@@ -1653,7 +1666,18 @@ impl VantaApp {
         let _ = lock(&self.inner.store).set_status(id, ProfileStatus::Starting, now_ms());
         // Real network inputs for H01-H10 / H17-H22. The host IPs live only in `input`
         // for the comparison; they are never logged, stored or returned.
-        let (exit, host_ips) = self.measure_ips(&prepared, upstream, bootstrap).await;
+        let (mut exit, host_ips) = self.measure_ips(&prepared, upstream, bootstrap).await;
+        // Exit country from the offline GeoIP database (H05); the measured exit is the
+        // profile's current one.
+        if let Some(loc) = exit.ip.and_then(|ip| self.geo_lookup(ip)) {
+            exit.country = Some(loc.country.clone());
+            let store = lock(&self.inner.store);
+            if let Ok(mut m) = store.get(id) {
+                m.exit_ip = exit.ip.map(|i| i.to_string()).unwrap_or_default();
+                m.country = loc.country;
+                let _ = store.update_meta(&m);
+            }
+        }
         input.exit = exit;
         let started = match self
             .start_engine(

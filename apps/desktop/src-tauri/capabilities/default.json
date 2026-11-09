@@ -31,6 +31,8 @@
     "allow-assign-proxy",
     "allow-test-proxy",
     "allow-inspect-proxy",
+    "allow-geo-preview",
+    "allow-geo-apply",
     "allow-launch-profile",
     "allow-stop-profile",
     "allow-running-profiles",

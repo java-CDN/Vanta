@@ -7,6 +7,7 @@ import { AUTOLOCK_OPTIONS } from '../lib/format';
 import { errorText } from '../api/backend';
 import { StrengthBar } from './Lock';
 import { DEFAULT_IP_ECHO_URL, DEFAULT_IP_INFO_URL, DEFAULT_SPEED_TEST_URL, echoUrlProblem } from '../lib/echo';
+import type { GeoDbStatus } from '../api/types';
 
 type Sec = 'general' | 'security' | 'engine' | 'data' | 'appearance' | 'privacy' | 'about';
 const SECS: [Sec, string, IconName][] = [['general', 'General', 'gear'], ['security', 'Security & vault', 'lock'], ['engine', 'Engine', 'cpu'], ['data', 'Data', 'hdd'], ['appearance', 'Appearance', 'sun'], ['privacy', 'Privacy', 'eye'], ['about', 'About', 'info']];
@@ -34,6 +35,14 @@ function ChangePassword() {
     </div></div>
     <div className="mf"><button className="btn" onClick={a.closeModal}>Cancel</button><button className="btn p" data-a="cpSave" disabled={busy} onClick={save}>{busy ? <><Spin />Re-wrapping key…</> : 'Change password'}</button></div>
   </>;
+}
+
+/** Release of the bundled GeoIP database for the About attribution line. */
+function geoRelease(g: GeoDbStatus): string {
+  if (g.state === 'ready') return `release ${g.info.release}, used offline on this PC`;
+  if (g.state === 'loading') return 'checking the database…';
+  if (g.state === 'failed') return 'database failed its check';
+  return 'not included in this build';
 }
 
 export function SettingsScreen() {
@@ -139,7 +148,8 @@ export function SettingsScreen() {
     <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 12 }}><div className="brand" style={{ padding: 0 }}><div className="lg" style={{ width: 44, height: 44, borderRadius: 12 }}><Icon n="shield" s={22} /></div></div><div><b style={{ fontSize: 16 }}>Vanta</b><div className="muted">Private multi-profile browser for Windows 10 and 11</div></div></div>
     <div className="kv" style={{ gridTemplateColumns: '170px 1fr' }}>
       <dt>App</dt><dd>Vanta {a.info.app_version}{a.info.mock ? ' · browser preview (demo data)' : ''}</dd><dt>Shell</dt><dd>Tauri desktop app (Rust core)</dd><dt>Engine</dt><dd>Vanta Chromium {a.info.engine_version}</dd>
-      <dt>Features</dt><dd>Profile Manager · Fingerprint Studio · Health Check (56 checks) · Proxy Hub · Network Guard · Vault Lock · Geo Auto-Match · Activity Log</dd><dt>Supported OS</dt><dd>Windows 10 and Windows 11 (64-bit)</dd></div></div>;
+      <dt>Features</dt><dd>Profile Manager · Fingerprint Studio · Health Check (56 checks) · Proxy Hub · Network Guard · Vault Lock · Geo Auto-Match · Activity Log</dd><dt>Supported OS</dt><dd>Windows 10 and Windows 11 (64-bit)</dd>
+      <dt>GeoIP data</dt><dd id="geoAttribution">IP geolocation by DB-IP (https://db-ip.com) · IP to City Lite, licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) · {geoRelease(a.info.geoip)}</dd></div></div>;
   return (
     <Main title="Settings" sub="Vanta stays light: a small native manager; only open profiles use resources.">
       <div className="row" style={{ alignItems: 'flex-start' }}>

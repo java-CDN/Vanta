@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""Generate crates/vanta-fingerprint/src/geo_tables.rs (Geo Auto-Match, F07).
+
+The DB-IP "IP to City Lite" database has no time zone field, so Vanta derives the IANA
+zone from the country and the coordinates: single-zone countries map directly; in
+multi-zone countries the zone of the nearest reference city wins. The same table is what
+rule C018 (and health check H05) accept for a country, so a matched profile always passes.
+
+Every zone name is checked against Python's zoneinfo (IANA tzdata) before writing.
+
+    python3 scripts/gen_geo_tables.py            # rewrite the Rust file
+    python3 scripts/gen_geo_tables.py --check    # exit 1 if the file is out of date
+"""
+import sys
+import zoneinfo
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent.parent / 'crates/vanta-fingerprint/src/geo_tables.rs'
+
+# Multi-zone countries: zone -> reference cities (lat, lon).
+MULTI = {
+    'US': {
+        'America/New_York': [(40.71, -74.01), (33.75, -84.39), (25.76, -80.19), (42.36, -71.06), (35.23, -80.84),
+                             (40.44, -79.99), (39.96, -83.00), (38.90, -77.04), (39.95, -75.17), (30.33, -81.66),
+                             (27.95, -82.46), (43.05, -76.15), (35.78, -78.64), (37.54, -77.44), (39.29, -76.61)],
+        'America/Detroit': [(42.33, -83.05), (42.96, -85.67), (43.02, -83.69)],
+        'America/Indiana/Indianapolis': [(39.77, -86.16), (41.08, -85.14)],
+        'America/Kentucky/Louisville': [(38.25, -85.76), (38.04, -84.50)],
+        'America/Chicago': [(41.88, -87.63), (32.78, -96.80), (29.76, -95.37), (44.98, -93.27), (39.10, -94.58),
+                            (29.95, -90.07), (36.16, -86.78), (38.63, -90.20), (35.15, -90.05), (35.47, -97.52),
+                            (29.42, -98.49), (43.04, -87.91), (41.26, -95.94), (46.88, -96.79), (37.69, -97.34),
+                            (33.52, -86.80), (30.27, -97.74), (41.59, -93.62), (34.75, -92.29), (32.30, -90.18),
+                            (43.55, -96.73), (27.80, -97.40), (33.58, -101.86), (35.22, -101.83)],
+        'America/Denver': [(39.74, -104.99), (40.76, -111.89), (35.08, -106.65), (31.76, -106.49), (41.14, -104.82),
+                           (45.78, -108.50), (46.59, -112.04), (38.83, -104.82)],
+        'America/Boise': [(43.62, -116.20), (42.87, -112.45)],
+        'America/Phoenix': [(33.45, -112.07), (32.22, -110.97), (35.20, -111.65)],
+        'America/Los_Angeles': [(34.05, -118.24), (37.77, -122.42), (47.61, -122.33), (45.52, -122.68),
+                                (36.17, -115.14), (32.72, -117.16), (38.58, -121.49), (47.66, -117.43),
+                                (36.74, -119.79), (44.05, -123.09), (39.53, -119.81), (37.34, -121.89)],
+        'America/Anchorage': [(61.22, -149.90), (64.84, -147.72), (58.30, -134.42)],
+        'Pacific/Honolulu': [(21.31, -157.86), (19.71, -155.08)],
+    },
+    'CA': {
+        'America/St_Johns': [(47.56, -52.71)],
+        'America/Halifax': [(44.65, -63.58), (46.09, -64.78), (46.24, -63.13), (45.27, -66.06)],
+        'America/Toronto': [(43.65, -79.38), (45.42, -75.70), (45.50, -73.57), (46.81, -71.21), (48.38, -89.25),
+                            (46.49, -80.99), (42.98, -81.25), (43.26, -79.87), (45.40, -71.89), (48.45, -68.52)],
+        'America/Winnipeg': [(49.90, -97.14), (49.85, -99.95)],
+        'America/Regina': [(50.45, -104.61), (52.13, -106.67)],
+        'America/Edmonton': [(53.55, -113.49), (51.05, -114.07), (62.45, -114.37), (49.69, -112.84)],
+        'America/Vancouver': [(49.28, -123.12), (48.43, -123.37), (49.89, -119.50), (53.92, -122.75), (50.67, -120.33)],
+        'America/Whitehorse': [(60.72, -135.06)],
+    },
+    'MX': {
+        'America/Mexico_City': [(19.43, -99.13), (20.67, -103.35), (19.04, -98.21), (19.17, -96.13), (17.07, -96.72),
+                                (21.12, -101.68), (20.59, -100.39), (22.15, -100.98), (18.92, -99.23), (16.75, -93.12)],
+        'America/Merida': [(20.97, -89.62), (19.85, -90.53)],
+        'America/Monterrey': [(25.69, -100.32), (25.54, -103.41), (25.42, -101.00)],
+        'America/Matamoros': [(25.87, -97.50), (26.09, -98.28)],
+        'America/Cancun': [(21.16, -86.85), (18.50, -88.30)],
+        'America/Chihuahua': [(28.63, -106.07)],
+        'America/Ciudad_Juarez': [(31.69, -106.42)],
+        'America/Hermosillo': [(29.07, -110.96), (27.49, -109.94)],
+        'America/Mazatlan': [(23.25, -106.41), (24.14, -110.31), (24.81, -107.39)],
+        'America/Tijuana': [(32.51, -117.04), (32.62, -115.45), (31.87, -116.60)],
+    },
+    'BR': {
+        'America/Sao_Paulo': [(-23.55, -46.63), (-22.91, -43.17), (-15.79, -47.88), (-19.92, -43.94), (-25.43, -49.27),
+                              (-30.03, -51.23), (-16.69, -49.25), (-27.60, -48.55), (-20.32, -40.34), (-22.91, -47.06)],
+        'America/Bahia': [(-12.97, -38.50), (-14.79, -39.05)],
+        'America/Recife': [(-8.05, -34.88), (-7.12, -34.86), (-5.79, -35.21)],
+        'America/Maceio': [(-9.67, -35.74), (-10.91, -37.07)],
+        'America/Fortaleza': [(-3.73, -38.52), (-2.53, -44.30), (-5.09, -42.80)],
+        'America/Belem': [(-1.46, -48.50), (0.03, -51.07)],
+        'America/Araguaina': [(-7.19, -48.21), (-10.18, -48.33)],
+        'America/Santarem': [(-2.44, -54.71)],
+        'America/Manaus': [(-3.12, -60.02)],
+        'America/Boa_Vista': [(2.82, -60.67)],
+        'America/Cuiaba': [(-15.60, -56.10)],
+        'America/Campo_Grande': [(-20.44, -54.65)],
+        'America/Porto_Velho': [(-8.76, -63.90)],
+        'America/Rio_Branco': [(-9.97, -67.81)],
+        'America/Noronha': [(-3.85, -32.42)],
+    },
+    'RU': {
+        'Europe/Kaliningrad': [(54.71, 20.51)],
+        'Europe/Moscow': [(55.76, 37.62), (59.93, 30.36), (55.79, 49.12), (56.33, 44.00), (47.24, 39.71),
+                          (45.04, 38.98), (51.66, 39.20), (44.95, 34.10), (43.12, 45.70), (64.54, 40.54), (68.97, 33.07)],
+        'Europe/Kirov': [(58.60, 49.66)],
+        'Europe/Volgograd': [(48.71, 44.51)],
+        'Europe/Saratov': [(51.53, 46.03)],
+        'Europe/Ulyanovsk': [(54.31, 48.40)],
+        'Europe/Astrakhan': [(46.35, 48.04)],
+        'Europe/Samara': [(53.20, 50.15), (53.51, 49.42), (56.85, 53.21)],
+        'Asia/Yekaterinburg': [(56.84, 60.60), (55.16, 61.40), (54.73, 55.96), (58.01, 56.25), (57.15, 65.53),
+                               (51.77, 55.10), (61.25, 73.40)],
+        'Asia/Omsk': [(54.99, 73.37)],
+        'Asia/Novosibirsk': [(55.03, 82.92)],
+        'Asia/Barnaul': [(53.35, 83.78)],
+        'Asia/Tomsk': [(56.50, 84.97)],
+        'Asia/Novokuznetsk': [(53.76, 87.12), (55.35, 86.09)],
+        'Asia/Krasnoyarsk': [(56.01, 92.85), (53.72, 91.44)],
+        'Asia/Irkutsk': [(52.29, 104.30), (51.83, 107.58)],
+        'Asia/Chita': [(52.03, 113.50)],
+        'Asia/Yakutsk': [(62.03, 129.73), (50.26, 127.53)],
+        'Asia/Vladivostok': [(43.12, 131.89), (48.48, 135.08)],
+        'Asia/Sakhalin': [(46.96, 142.73)],
+        'Asia/Magadan': [(59.56, 150.80)],
+        'Asia/Kamchatka': [(53.02, 158.65)],
+        'Asia/Anadyr': [(64.73, 177.50)],
+    },
+    'AU': {
+        'Australia/Sydney': [(-33.87, 151.21), (-35.28, 149.13), (-32.93, 151.78), (-34.42, 150.89)],
+        'Australia/Melbourne': [(-37.81, 144.96), (-38.15, 144.36), (-36.76, 144.28)],
+        'Australia/Brisbane': [(-27.47, 153.03), (-16.92, 145.77), (-19.26, 146.82), (-28.02, 153.40), (-23.38, 150.51)],
+        'Australia/Adelaide': [(-34.93, 138.60)],
+        'Australia/Broken_Hill': [(-31.95, 141.47)],
+        'Australia/Perth': [(-31.95, 115.86), (-20.31, 118.58)],
+        'Australia/Darwin': [(-12.46, 130.84), (-23.70, 133.88)],
+        'Australia/Hobart': [(-42.88, 147.33), (-41.43, 147.14)],
+    },
+    'KZ': {
+        'Asia/Almaty': [(43.24, 76.89), (51.17, 71.45), (49.95, 82.61), (42.32, 69.59), (49.80, 73.10)],
+        'Asia/Qostanay': [(53.21, 63.62)],
+        'Asia/Aqtobe': [(50.28, 57.17)],
+        'Asia/Aqtau': [(43.65, 51.17)],
+        'Asia/Atyrau': [(47.10, 51.92)],
+        'Asia/Oral': [(51.23, 51.37)],
+        'Asia/Qyzylorda': [(44.85, 65.51)],
+    },
+    'ID': {
+        'Asia/Jakarta': [(-6.21, 106.85), (-7.25, 112.75), (3.60, 98.67), (-6.92, 107.61), (-0.95, 100.35),
+                         (-2.99, 104.76), (-7.80, 110.36)],
+        'Asia/Pontianak': [(-0.03, 109.33), (-2.21, 113.92)],
+        'Asia/Makassar': [(-5.15, 119.43), (-8.65, 115.22), (-1.27, 116.83), (1.47, 124.84)],
+        'Asia/Jayapura': [(-2.53, 140.72), (-3.70, 128.17)],
+    },
+    'CL': {
+        'America/Santiago': [(-33.45, -70.67), (-23.65, -70.40), (-36.83, -73.05)],
+        'America/Punta_Arenas': [(-53.16, -70.91)],
+        'Pacific/Easter': [(-27.11, -109.35)],
+    },
+    'EC': {'America/Guayaquil': [(-0.18, -78.47), (-2.19, -79.89)], 'Pacific/Galapagos': [(-0.74, -90.31)]},
+    'ES': {'Europe/Madrid': [(40.42, -3.70), (41.39, 2.17), (37.39, -5.98), (39.47, -0.38), (43.26, -2.93)],
+           'Atlantic/Canary': [(28.12, -15.43), (28.47, -16.25)],
+           'Africa/Ceuta': [(35.89, -5.32), (35.29, -2.94)]},
+    'PT': {'Europe/Lisbon': [(38.72, -9.14), (41.15, -8.61)], 'Atlantic/Madeira': [(32.65, -16.91)],
+           'Atlantic/Azores': [(37.74, -25.67)]},
+    'NZ': {'Pacific/Auckland': [(-36.85, 174.76), (-41.29, 174.78), (-43.53, 172.64)], 'Pacific/Chatham': [(-43.95, -176.56)]},
+    'MN': {'Asia/Ulaanbaatar': [(47.89, 106.91)], 'Asia/Hovd': [(48.00, 91.64)]},
+    'CD': {'Africa/Kinshasa': [(-4.44, 15.27)], 'Africa/Lubumbashi': [(-11.66, 27.48), (0.52, 25.19)]},
+    'UZ': {'Asia/Tashkent': [(41.30, 69.24)], 'Asia/Samarkand': [(39.65, 66.96), (39.77, 64.42)]},
+    'UA': {'Europe/Kyiv': [(50.45, 30.52)], 'Europe/Simferopol': [(44.95, 34.10)]},
+    'AR': {'America/Argentina/Buenos_Aires': [(-34.60, -58.38)], 'America/Argentina/Cordoba': [(-31.42, -64.18)],
+           'America/Argentina/Mendoza': [(-32.89, -68.83)], 'America/Argentina/Salta': [(-24.79, -65.41)],
+           'America/Argentina/Ushuaia': [(-54.80, -68.30)]},
+    'CY': {'Asia/Nicosia': [(35.17, 33.36), (34.68, 33.04)], 'Asia/Famagusta': [(35.12, 33.94)]},
+    'PS': {'Asia/Gaza': [(31.50, 34.47)], 'Asia/Hebron': [(31.53, 35.10), (31.90, 35.20)]},
+    'GL': {'America/Nuuk': [(64.18, -51.72)], 'America/Danmarkshavn': [(76.77, -18.67)],
+           'America/Scoresbysund': [(70.48, -21.97)], 'America/Thule': [(76.53, -68.70)]},
+    'PF': {'Pacific/Tahiti': [(-17.53, -149.57)], 'Pacific/Marquesas': [(-9.0, -140.0)], 'Pacific/Gambier': [(-23.1, -134.9)]},
+    'KI': {'Pacific/Tarawa': [(1.45, 173.0)], 'Pacific/Kanton': [(-2.8, -171.7)], 'Pacific/Kiritimati': [(1.87, -157.4)]},
+}
+
+# Single-zone countries.
+SINGLE = {
+    'AD': 'Europe/Andorra', 'AE': 'Asia/Dubai', 'AF': 'Asia/Kabul', 'AG': 'America/Antigua', 'AI': 'America/Anguilla',
+    'AL': 'Europe/Tirane', 'AM': 'Asia/Yerevan', 'AO': 'Africa/Luanda', 'AT': 'Europe/Vienna', 'AW': 'America/Aruba',
+    'AX': 'Europe/Mariehamn', 'AZ': 'Asia/Baku', 'BA': 'Europe/Sarajevo', 'BB': 'America/Barbados', 'BD': 'Asia/Dhaka',
+    'BE': 'Europe/Brussels', 'BF': 'Africa/Ouagadougou', 'BG': 'Europe/Sofia', 'BH': 'Asia/Bahrain',
+    'BI': 'Africa/Bujumbura', 'BJ': 'Africa/Porto-Novo', 'BM': 'Atlantic/Bermuda', 'BN': 'Asia/Brunei',
+    'BO': 'America/La_Paz', 'BS': 'America/Nassau', 'BT': 'Asia/Thimphu', 'BW': 'Africa/Gaborone', 'BY': 'Europe/Minsk',
+    'BZ': 'America/Belize', 'CF': 'Africa/Bangui', 'CG': 'Africa/Brazzaville', 'CH': 'Europe/Zurich',
+    'CI': 'Africa/Abidjan', 'CM': 'Africa/Douala', 'CN': 'Asia/Shanghai', 'CO': 'America/Bogota',
+    'CR': 'America/Costa_Rica', 'CU': 'America/Havana', 'CV': 'Atlantic/Cape_Verde', 'CW': 'America/Curacao',
+    'CZ': 'Europe/Prague', 'DE': 'Europe/Berlin', 'DJ': 'Africa/Djibouti', 'DK': 'Europe/Copenhagen',
+    'DM': 'America/Dominica', 'DO': 'America/Santo_Domingo', 'DZ': 'Africa/Algiers', 'EE': 'Europe/Tallinn',
+    'EG': 'Africa/Cairo', 'ER': 'Africa/Asmara', 'ET': 'Africa/Addis_Ababa', 'FI': 'Europe/Helsinki',
+    'FJ': 'Pacific/Fiji', 'FO': 'Atlantic/Faroe', 'FR': 'Europe/Paris', 'GA': 'Africa/Libreville', 'GB': 'Europe/London',
+    'GD': 'America/Grenada', 'GE': 'Asia/Tbilisi', 'GF': 'America/Cayenne', 'GG': 'Europe/Guernsey',
+    'GH': 'Africa/Accra', 'GI': 'Europe/Gibraltar', 'GM': 'Africa/Banjul', 'GN': 'Africa/Conakry',
+    'GP': 'America/Guadeloupe', 'GQ': 'Africa/Malabo', 'GR': 'Europe/Athens', 'GT': 'America/Guatemala',
+    'GU': 'Pacific/Guam', 'GW': 'Africa/Bissau', 'GY': 'America/Guyana', 'HK': 'Asia/Hong_Kong',
+    'HN': 'America/Tegucigalpa', 'HR': 'Europe/Zagreb', 'HT': 'America/Port-au-Prince', 'HU': 'Europe/Budapest',
+    'IE': 'Europe/Dublin', 'IL': 'Asia/Jerusalem', 'IM': 'Europe/Isle_of_Man', 'IN': 'Asia/Kolkata',
+    'IQ': 'Asia/Baghdad', 'IR': 'Asia/Tehran', 'IS': 'Atlantic/Reykjavik', 'IT': 'Europe/Rome', 'JE': 'Europe/Jersey',
+    'JM': 'America/Jamaica', 'JO': 'Asia/Amman', 'JP': 'Asia/Tokyo', 'KE': 'Africa/Nairobi', 'KG': 'Asia/Bishkek',
+    'KH': 'Asia/Phnom_Penh', 'KM': 'Indian/Comoro', 'KN': 'America/St_Kitts', 'KR': 'Asia/Seoul', 'KW': 'Asia/Kuwait',
+    'KY': 'America/Cayman', 'LA': 'Asia/Vientiane', 'LB': 'Asia/Beirut', 'LC': 'America/St_Lucia',
+    'LI': 'Europe/Vaduz', 'LK': 'Asia/Colombo', 'LR': 'Africa/Monrovia', 'LS': 'Africa/Maseru', 'LT': 'Europe/Vilnius',
+    'LU': 'Europe/Luxembourg', 'LV': 'Europe/Riga', 'LY': 'Africa/Tripoli', 'MA': 'Africa/Casablanca',
+    'MC': 'Europe/Monaco', 'MD': 'Europe/Chisinau', 'ME': 'Europe/Podgorica', 'MG': 'Indian/Antananarivo',
+    'MK': 'Europe/Skopje', 'ML': 'Africa/Bamako', 'MM': 'Asia/Yangon', 'MO': 'Asia/Macau', 'MQ': 'America/Martinique',
+    'MR': 'Africa/Nouakchott', 'MT': 'Europe/Malta', 'MU': 'Indian/Mauritius', 'MV': 'Indian/Maldives',
+    'MW': 'Africa/Blantyre', 'MY': 'Asia/Kuala_Lumpur', 'MZ': 'Africa/Maputo', 'NA': 'Africa/Windhoek',
+    'NC': 'Pacific/Noumea', 'NE': 'Africa/Niamey', 'NG': 'Africa/Lagos', 'NI': 'America/Managua',
+    'NL': 'Europe/Amsterdam', 'NO': 'Europe/Oslo', 'NP': 'Asia/Kathmandu', 'OM': 'Asia/Muscat', 'PA': 'America/Panama',
+    'PE': 'America/Lima', 'PG': 'Pacific/Port_Moresby', 'PH': 'Asia/Manila', 'PK': 'Asia/Karachi', 'PL': 'Europe/Warsaw',
+    'PR': 'America/Puerto_Rico', 'PY': 'America/Asuncion', 'QA': 'Asia/Qatar', 'RE': 'Indian/Reunion',
+    'RO': 'Europe/Bucharest', 'RS': 'Europe/Belgrade', 'RW': 'Africa/Kigali', 'SA': 'Asia/Riyadh',
+    'SB': 'Pacific/Guadalcanal', 'SC': 'Indian/Mahe', 'SD': 'Africa/Khartoum', 'SE': 'Europe/Stockholm',
+    'SG': 'Asia/Singapore', 'SI': 'Europe/Ljubljana', 'SK': 'Europe/Bratislava', 'SL': 'Africa/Freetown',
+    'SM': 'Europe/San_Marino', 'SN': 'Africa/Dakar', 'SO': 'Africa/Mogadishu', 'SR': 'America/Paramaribo',
+    'SS': 'Africa/Juba', 'SV': 'America/El_Salvador', 'SX': 'America/Lower_Princes', 'SY': 'Asia/Damascus',
+    'SZ': 'Africa/Mbabane', 'TC': 'America/Grand_Turk', 'TD': 'Africa/Ndjamena', 'TG': 'Africa/Lome',
+    'TH': 'Asia/Bangkok', 'TJ': 'Asia/Dushanbe', 'TL': 'Asia/Dili', 'TM': 'Asia/Ashgabat', 'TN': 'Africa/Tunis',
+    'TO': 'Pacific/Tongatapu', 'TR': 'Europe/Istanbul', 'TT': 'America/Port_of_Spain', 'TW': 'Asia/Taipei',
+    'TZ': 'Africa/Dar_es_Salaam', 'UG': 'Africa/Kampala', 'UY': 'America/Montevideo', 'VA': 'Europe/Vatican',
+    'VC': 'America/St_Vincent', 'VE': 'America/Caracas', 'VG': 'America/Tortola', 'VI': 'America/St_Thomas',
+    'VN': 'Asia/Ho_Chi_Minh', 'VU': 'Pacific/Efate', 'WS': 'Pacific/Apia', 'XK': 'Europe/Belgrade', 'YE': 'Asia/Aden',
+    'YT': 'Indian/Mayotte', 'ZA': 'Africa/Johannesburg', 'ZM': 'Africa/Lusaka', 'ZW': 'Africa/Harare',
+}
+
+# Older or alternative IANA names a country also accepts (C018), never produced.
+ALIASES = {
+    'IN': ['Asia/Calcutta'], 'UA': ['Europe/Kiev', 'Europe/Uzhgorod', 'Europe/Zaporozhye'],
+    'VN': ['Asia/Saigon'], 'NP': ['Asia/Katmandu'], 'MM': ['Asia/Rangoon'], 'CN': ['Asia/Urumqi', 'Asia/Chongqing', 'Asia/Harbin'],
+    'US': ['America/Indianapolis', 'America/Juneau', 'America/Sitka', 'America/Nome', 'America/Menominee',
+           'America/Indiana/Knox', 'America/Indiana/Tell_City', 'America/North_Dakota/Center', 'America/Kentucky/Monticello',
+           'US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific', 'US/Alaska', 'US/Hawaii', 'US/Arizona'],
+    'AR': ['America/Buenos_Aires', 'America/Argentina/Jujuy', 'America/Argentina/Tucuman', 'America/Argentina/Catamarca',
+           'America/Argentina/La_Rioja', 'America/Argentina/San_Juan', 'America/Argentina/San_Luis',
+           'America/Argentina/Rio_Gallegos'],
+    'GL': ['America/Godthab'], 'DE': ['Europe/Busingen'], 'AU': ['Australia/Lindeman', 'Australia/Lord_Howe', 'Australia/Eucla'],
+    'BR': ['America/Eirunepe'], 'MX': ['America/Bahia_Banderas', 'America/Ojinaga'], 'RU': ['Asia/Srednekolymsk', 'Asia/Ust-Nera', 'Asia/Khandyga'],
+    'CA': ['America/Montreal', 'America/Moncton', 'America/Glace_Bay', 'America/Goose_Bay', 'America/Iqaluit',
+           'America/Rankin_Inlet', 'America/Cambridge_Bay', 'America/Dawson_Creek', 'America/Fort_Nelson', 'America/Dawson',
+           'America/Inuvik', 'America/Swift_Current', 'America/Atikokan', 'America/Creston', 'America/Blanc-Sablon',
+           'America/Resolute', 'America/Nipigon', 'America/Thunder_Bay'],
+    'TW': [], 'HK': [], 'IL': ['Asia/Tel_Aviv'], 'CZ': [], 'TR': ['Asia/Istanbul'],
+}
+
+# IANA tzdata "backward" link names used in ALIASES.
+BACKWARD = {
+    'Asia/Calcutta', 'Europe/Kiev', 'Europe/Uzhgorod', 'Europe/Zaporozhye', 'Asia/Saigon', 'Asia/Katmandu',
+    'Asia/Rangoon', 'America/Indianapolis', 'US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific', 'US/Alaska',
+    'US/Hawaii', 'US/Arizona', 'America/Buenos_Aires', 'America/Godthab', 'America/Montreal', 'Asia/Chongqing',
+    'Asia/Harbin', 'Asia/Tel_Aviv', 'Asia/Istanbul', 'America/Nipigon', 'America/Thunder_Bay',
+}
+
+# Browser locale (navigator.language) most common in each country.
+LOCALE = {
+    'AD': 'ca-AD', 'AE': 'ar-AE', 'AF': 'fa-AF', 'AG': 'en-AG', 'AI': 'en-AI', 'AL': 'sq-AL', 'AM': 'hy-AM', 'AO': 'pt-AO',
+    'AR': 'es-AR', 'AT': 'de-AT', 'AU': 'en-AU', 'AW': 'nl-AW', 'AX': 'sv-AX', 'AZ': 'az-AZ', 'BA': 'bs-BA', 'BB': 'en-BB',
+    'BD': 'bn-BD', 'BE': 'nl-BE', 'BF': 'fr-BF', 'BG': 'bg-BG', 'BH': 'ar-BH', 'BI': 'fr-BI', 'BJ': 'fr-BJ', 'BM': 'en-BM',
+    'BN': 'ms-BN', 'BO': 'es-BO', 'BR': 'pt-BR', 'BS': 'en-BS', 'BT': 'dz-BT', 'BW': 'en-BW', 'BY': 'ru-BY', 'BZ': 'en-BZ',
+    'CA': 'en-CA', 'CD': 'fr-CD', 'CF': 'fr-CF', 'CG': 'fr-CG', 'CH': 'de-CH', 'CI': 'fr-CI', 'CL': 'es-CL', 'CM': 'fr-CM',
+    'CN': 'zh-CN', 'CO': 'es-CO', 'CR': 'es-CR', 'CU': 'es-CU', 'CV': 'pt-CV', 'CW': 'nl-CW', 'CY': 'el-CY', 'CZ': 'cs-CZ',
+    'DE': 'de-DE', 'DJ': 'fr-DJ', 'DK': 'da-DK', 'DM': 'en-DM', 'DO': 'es-DO', 'DZ': 'ar-DZ', 'EC': 'es-EC', 'EE': 'et-EE',
+    'EG': 'ar-EG', 'ER': 'ti-ER', 'ES': 'es-ES', 'ET': 'am-ET', 'FI': 'fi-FI', 'FJ': 'en-FJ', 'FO': 'fo-FO', 'FR': 'fr-FR',
+    'GA': 'fr-GA', 'GB': 'en-GB', 'GD': 'en-GD', 'GE': 'ka-GE', 'GF': 'fr-GF', 'GG': 'en-GG', 'GH': 'en-GH', 'GI': 'en-GI',
+    'GL': 'kl-GL', 'GM': 'en-GM', 'GN': 'fr-GN', 'GP': 'fr-GP', 'GQ': 'es-GQ', 'GR': 'el-GR', 'GT': 'es-GT', 'GU': 'en-GU',
+    'GW': 'pt-GW', 'GY': 'en-GY', 'HK': 'zh-HK', 'HN': 'es-HN', 'HR': 'hr-HR', 'HT': 'fr-HT', 'HU': 'hu-HU', 'ID': 'id-ID',
+    'IE': 'en-IE', 'IL': 'he-IL', 'IM': 'en-IM', 'IN': 'en-IN', 'IQ': 'ar-IQ', 'IR': 'fa-IR', 'IS': 'is-IS', 'IT': 'it-IT',
+    'JE': 'en-JE', 'JM': 'en-JM', 'JO': 'ar-JO', 'JP': 'ja-JP', 'KE': 'en-KE', 'KG': 'ky-KG', 'KH': 'km-KH', 'KI': 'en-KI',
+    'KM': 'fr-KM', 'KN': 'en-KN', 'KR': 'ko-KR', 'KW': 'ar-KW', 'KY': 'en-KY', 'KZ': 'ru-KZ', 'LA': 'lo-LA', 'LB': 'ar-LB',
+    'LC': 'en-LC', 'LI': 'de-LI', 'LK': 'si-LK', 'LR': 'en-LR', 'LS': 'en-LS', 'LT': 'lt-LT', 'LU': 'fr-LU', 'LV': 'lv-LV',
+    'LY': 'ar-LY', 'MA': 'ar-MA', 'MC': 'fr-MC', 'MD': 'ro-MD', 'ME': 'sr-Latn-ME', 'MG': 'fr-MG', 'MK': 'mk-MK',
+    'ML': 'fr-ML', 'MM': 'my-MM', 'MN': 'mn-MN', 'MO': 'zh-MO', 'MQ': 'fr-MQ', 'MR': 'ar-MR', 'MT': 'en-MT', 'MU': 'en-MU',
+    'MV': 'dv-MV', 'MW': 'en-MW', 'MX': 'es-MX', 'MY': 'ms-MY', 'MZ': 'pt-MZ', 'NA': 'en-NA', 'NC': 'fr-NC', 'NE': 'fr-NE',
+    'NG': 'en-NG', 'NI': 'es-NI', 'NL': 'nl-NL', 'NO': 'nb-NO', 'NP': 'ne-NP', 'NZ': 'en-NZ', 'OM': 'ar-OM', 'PA': 'es-PA',
+    'PE': 'es-PE', 'PF': 'fr-PF', 'PG': 'en-PG', 'PH': 'en-PH', 'PK': 'en-PK', 'PL': 'pl-PL', 'PR': 'es-PR', 'PS': 'ar-PS',
+    'PT': 'pt-PT', 'PY': 'es-PY', 'QA': 'ar-QA', 'RE': 'fr-RE', 'RO': 'ro-RO', 'RS': 'sr-RS', 'RU': 'ru-RU', 'RW': 'rw-RW',
+    'SA': 'ar-SA', 'SB': 'en-SB', 'SC': 'en-SC', 'SD': 'ar-SD', 'SE': 'sv-SE', 'SG': 'en-SG', 'SI': 'sl-SI', 'SK': 'sk-SK',
+    'SL': 'en-SL', 'SM': 'it-SM', 'SN': 'fr-SN', 'SO': 'so-SO', 'SR': 'nl-SR', 'SS': 'en-SS', 'SV': 'es-SV', 'SX': 'en-SX',
+    'SY': 'ar-SY', 'SZ': 'en-SZ', 'TC': 'en-TC', 'TD': 'fr-TD', 'TG': 'fr-TG', 'TH': 'th-TH', 'TJ': 'tg-TJ', 'TL': 'pt-TL',
+    'TM': 'tk-TM', 'TN': 'ar-TN', 'TO': 'to-TO', 'TR': 'tr-TR', 'TT': 'en-TT', 'TW': 'zh-TW', 'TZ': 'sw-TZ', 'UA': 'uk-UA',
+    'UG': 'en-UG', 'US': 'en-US', 'UY': 'es-UY', 'UZ': 'uz-UZ', 'VA': 'it-VA', 'VC': 'en-VC', 'VE': 'es-VE', 'VG': 'en-VG',
+    'VI': 'en-VI', 'VN': 'vi-VN', 'VU': 'bi-VU', 'WS': 'sm-WS', 'XK': 'sq-XK', 'YE': 'ar-YE', 'YT': 'fr-YT', 'ZA': 'en-ZA',
+    'ZM': 'en-ZM', 'ZW': 'en-ZW',
+}
+
+# Region (subdivision English name, lower case) -> locale, where the region's language
+# differs from the country default.
+REGION_LOCALE = [
+    ('CA', 'quebec', 'fr-CA'), ('CA', 'québec', 'fr-CA'),
+    ('BE', 'wallonia', 'fr-BE'), ('BE', 'brussels capital', 'fr-BE'), ('BE', 'brussels-capital region', 'fr-BE'),
+    ('BE', 'brussels', 'fr-BE'),
+    ('CH', 'geneva', 'fr-CH'), ('CH', 'vaud', 'fr-CH'), ('CH', 'neuchatel', 'fr-CH'), ('CH', 'neuchâtel', 'fr-CH'),
+    ('CH', 'jura', 'fr-CH'), ('CH', 'ticino', 'it-CH'),
+    ('ES', 'catalonia', 'ca-ES'),
+]
+
+
+def validate():
+    known = zoneinfo.available_timezones()
+    bad = []
+    for cc, zones in MULTI.items():
+        assert cc not in SINGLE, cc
+        for z, pts in zones.items():
+            if z not in known:
+                bad.append(z)
+            assert pts, z
+            for lat, lon in pts:
+                assert -90 <= lat <= 90 and -180 <= lon <= 180, (z, lat, lon)
+    for cc, z in SINGLE.items():
+        if z not in known:
+            bad.append(z)
+    for cc, zs in ALIASES.items():
+        # IANA "backward" links are missing from some tzdata installs; they are listed here.
+        bad.extend(z for z in zs if z not in known and z not in BACKWARD)
+    if bad:
+        raise SystemExit(f'unknown IANA zones: {bad}')
+    for cc in list(MULTI) + list(SINGLE):
+        assert cc in LOCALE, f'no locale for {cc}'
+        assert LOCALE[cc].endswith('-' + cc), (cc, LOCALE[cc])
+
+
+def rust() -> str:
+    o = ['// @generated by scripts/gen_geo_tables.py. Do not edit by hand.',
+         '//! Country -> IANA time zones (with reference cities for multi-zone countries),',
+         '//! accepted aliases and browser locales (Geo Auto-Match, F07; rule C018).', '',
+         '/// A time zone and the (lat, lon) of its reference cities.',
+         'pub(crate) type Zone = (&\'static str, &\'static [(f64, f64)]);',
+         '/// A country and its zones.',
+         'pub(crate) type CountryZones = (&\'static str, &\'static [Zone]);', '',
+         '/// (country, [(zone, [(lat, lon) of reference cities])]); single-zone countries have',
+         '/// one zone and no cities.',
+         '#[rustfmt::skip]',
+         'pub(crate) static ZONES: &[CountryZones] = &[']
+    rows = {cc: [(z, pts) for z, pts in zones.items()] for cc, zones in MULTI.items()}
+    for cc, z in SINGLE.items():
+        rows[cc] = [(z, [])]
+    for cc in sorted(rows):
+        parts = []
+        for z, pts in rows[cc]:
+            ps = ', '.join(f'({lat:.2f}, {lon:.2f})' for lat, lon in pts)
+            parts.append(f'("{z}", &[{ps}])')
+        o.append(f'    ("{cc}", &[{", ".join(parts)}]),')
+    o.append('];')
+    o.append('')
+    o.append('/// Other IANA names a country accepts (older links, rare zones); never produced.')
+    o.append('#[rustfmt::skip]')
+    o.append('pub(crate) static ALIASES: &[(&str, &[&str])] = &[')
+    for cc in sorted(ALIASES):
+        if ALIASES[cc]:
+            o.append(f'    ("{cc}", &[{", ".join(chr(34) + z + chr(34) for z in ALIASES[cc])}]),')
+    o.append('];')
+    o.append('')
+    o.append('/// Most common browser locale per country.')
+    o.append('#[rustfmt::skip]')
+    o.append('pub(crate) static LOCALES: &[(&str, &str)] = &[')
+    for cc in sorted(LOCALE):
+        o.append(f'    ("{cc}", "{LOCALE[cc]}"),')
+    o.append('];')
+    o.append('')
+    o.append('/// (country, subdivision name in lower case, locale) where a region speaks another language.')
+    o.append('#[rustfmt::skip]')
+    o.append('pub(crate) static REGION_LOCALES: &[(&str, &str, &str)] = &[')
+    for cc, r, loc in REGION_LOCALE:
+        o.append(f'    ("{cc}", "{r}", "{loc}"),')
+    o.append('];')
+    return '\n'.join(o) + '\n'
+
+
+def main(argv):
+    validate()
+    text = rust()
+    if '--check' in argv:
+        if OUT.read_text(encoding='utf-8') != text:
+            print(f'{OUT} is out of date: run scripts/gen_geo_tables.py', file=sys.stderr)
+            return 1
+        print('geo tables up to date')
+        return 0
+    OUT.write_text(text, encoding='utf-8', newline='\n')
+    print(f'wrote {OUT}')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

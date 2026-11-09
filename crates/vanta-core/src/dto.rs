@@ -268,3 +268,66 @@ pub struct FingerprintView {
     pub seed_prefix: String,
     pub rules: Vec<RuleView>,
 }
+
+/// State of the offline GeoIP database (Geo Auto-Match, F07).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum GeoDbStatus {
+    NotBundled,
+    Loading,
+    Ready { info: vanta_geo::GeoDbInfo },
+    Failed { message: String },
+}
+
+/// Where an exit IP is, per the offline database.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GeoLocationView {
+    pub country: String,
+    pub country_name: Option<String>,
+    pub region: Option<String>,
+    pub city: Option<String>,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub timezone: Option<String>,
+}
+
+/// One value Geo Auto-Match would change. `language` changes are applied only when the
+/// user keeps "languages" selected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GeoFieldChange {
+    /// `country`, `timezone`, `geolocation`, `locale`, `languages`, `accept_language`.
+    pub field: String,
+    pub from: Option<String>,
+    pub to: String,
+    pub language: bool,
+}
+
+/// Preview of Geo Auto-Match for one profile. Empty `changes` and no `problem` = already
+/// matched.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GeoPlan {
+    pub profile_id: ProfileId,
+    pub name: String,
+    pub proxy_id: Option<String>,
+    pub exit_ip: Option<String>,
+    pub location: Option<GeoLocationView>,
+    pub changes: Vec<GeoFieldChange>,
+    pub problem: Option<String>,
+}
+
+/// One confirmed match: the exit IP the preview showed, and whether locale / languages /
+/// Accept-Language follow it too.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct GeoApply {
+    pub profile_id: ProfileId,
+    pub exit_ip: String,
+    pub languages: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GeoApplyResult {
+    pub profile_id: ProfileId,
+    /// The persona changed (its health report was cleared).
+    pub changed: bool,
+    pub error: Option<String>,
+}

@@ -12,7 +12,7 @@ mod settings;
 use commands::{now_ms, Shell};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, WindowEvent};
-use vanta_core::{verify_engine_dir, AppConfig, Deps, EngineCheck, EngineInfo, VantaApp};
+use vanta_core::{verify_engine_dir, AppConfig, Deps, EngineCheck, EngineInfo, GeoState, VantaApp};
 use vanta_vault::AutoLock;
 
 fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Error>> {
@@ -42,6 +42,9 @@ fn open_shell(handle: &tauri::AppHandle) -> Result<Shell, Box<dyn std::error::Er
     cfg.speed_test_url = settings.speed_url();
     let app = VantaApp::open(cfg, Deps::production()).map_err(|e| e.to_string())?;
     check_engine(&app, &engine_path);
+    if let Some(res) = &resource_dir {
+        open_geoip(&app, paths::bundled_geoip(res));
+    }
     Ok(Shell {
         app,
         autolock: Mutex::new(AutoLock::new(settings.autolock_minutes, now_ms())),
@@ -67,6 +70,24 @@ fn check_engine(app: &VantaApp, exe: &std::path::Path) {
     app.set_engine_check(EngineCheck::Pending);
     let app = app.clone();
     std::thread::spawn(move || app.set_engine_check(verify_engine_dir(&dir)));
+}
+
+/// The offline GeoIP database shipped with the installer (`geoip\` in the resources, with
+/// its `geoip.json`): checked against the manifest's SHA-256 and opened in the background
+/// (about 120 MB). Geo Auto-Match stays disabled until it is ready. No manifest = this
+/// build has no database.
+fn open_geoip(app: &VantaApp, dir: std::path::PathBuf) {
+    if !dir.join(vanta_geo::MANIFEST).is_file() {
+        return;
+    }
+    app.set_geo_db(GeoState::Loading);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        app.set_geo_db(match vanta_geo::GeoDb::open_bundle(&dir) {
+            Ok(db) => GeoState::Ready(std::sync::Arc::new(db)),
+            Err(e) => GeoState::Failed(e.to_string()),
+        })
+    });
 }
 
 fn main() {
@@ -122,6 +143,8 @@ fn main() {
             commands::assign_proxy,
             commands::test_proxy,
             commands::inspect_proxy,
+            commands::geo_preview,
+            commands::geo_apply,
             commands::launch_profile,
             commands::stop_profile,
             commands::running_profiles,

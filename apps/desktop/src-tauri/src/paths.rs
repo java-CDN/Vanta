@@ -34,6 +34,13 @@ pub fn bundled_engine(resource_dir: &Path) -> PathBuf {
     resource_dir.join("engine").join("vanta-chromium.exe")
 }
 
+/// The offline GeoIP database shipped with the installer: `geoip\` in the app's resource
+/// folder (`dbip-city-lite.mmdb` + `geoip.json`). Present only in builds made with it
+/// (`scripts/fetch_geoip.py`, done by CI).
+pub fn bundled_geoip(resource_dir: &Path) -> PathBuf {
+    resource_dir.join(vanta_geo::RESOURCE_DIR)
+}
+
 /// Which engine to use: the path set in Settings, else the bundled engine when the
 /// installer shipped one, else the default install location.
 pub fn choose_engine(setting: Option<&str>, local: &Path, resource_dir: Option<&Path>) -> PathBuf {

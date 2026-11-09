@@ -20,11 +20,14 @@ export interface MockOptions {
   engineCheck?: 'failed';
   /** Extra generated profiles (virtual list test). */
   extraProfiles?: number;
+  /** Offline GeoIP database state (default: ready). */
+  geoip?: 'not_bundled' | 'failed';
   /** Delay scale (0 = instant, for unit tests). */
   speed?: number;
 }
 
-interface MProfile { meta: T.ProfileMeta; seed: number; device: string; geo: 'ok' | 'none' | string; doh: T.DohProvider; health: T.HealthSummary | null }
+/** `geo`: 'ok' = matched to its proxy's exit, 'tz:<zone>' = fixed elsewhere, 'none' = never matched. `lang`: locale kept when matched without languages. */
+interface MProfile { meta: T.ProfileMeta; seed: number; device: string; geo: 'ok' | 'none' | string; lang?: string; doh: T.DohProvider; health: T.HealthSummary | null }
 interface MProxy { view: T.ProxyView; cc: string; ip: string; latency: number | null; kind: 'ok' | 'slow' | 'offline' }
 
 const UA = (major: string) => `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
@@ -45,6 +48,8 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   let unlocked = !!opts.unlocked && initialized;
   let password = 'demo';
   let recovery = '';
+  const geoip: T.GeoDbStatus = opts.geoip === 'not_bundled' ? { state: 'not_bundled' } : opts.geoip === 'failed' ? { state: 'failed', message: 'GeoIP database failed its integrity check' }
+    : { state: 'ready', info: { database_type: 'DBIP-City-Lite', release: '2026-11', license: 'CC BY 4.0', attribution: 'IP geolocation by DB-IP (https://db-ip.com)' } };
   const engineCheck: T.EngineCheck = opts.engineCheck === 'failed' ? { state: 'failed', message: 'chrome.dll differs' } : { state: 'not_bundled' };
   /** Consecutive failed launches per profile (like vanta-core). */
   const failed = new Map<string, { n: number; last: string }>();
@@ -166,7 +171,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
     let geo: { cc: string; tz: string } | null = null;
     if (p.geo === 'ok' && proxy) geo = { cc: proxy.cc, tz: COUNTRIES[proxy.cc].tz };
     else if (p.geo.startsWith('tz:')) { const tz = p.geo.slice(3); const cc = Object.keys(COUNTRIES).find(k => COUNTRIES[k].tz === tz) ?? 'US'; geo = { cc, tz }; }
-    const locale = p.geo === 'none' ? 'en-US' : geo ? COUNTRIES[geo.cc].locale : 'en-US';
+    const locale = p.lang ?? (p.geo === 'none' ? 'en-US' : geo ? COUNTRIES[geo.cc].locale : 'en-US');
     const v = view(p.meta.os, p.device, p.seed, locale, geo);
     if (geo && proxy && geo.cc !== proxy.cc) {
       const r = v.rules.find(x => x.id === 'C018')!;
@@ -211,7 +216,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
   const b: Backend = {
     kind: 'mock',
     async appInfo() {
-      return { app_version: '0.1.0', initialized, unlocked, engine_version: ENGINE, engine_path: settings.engine_path ?? '%LOCALAPPDATA%\\Programs\\Vanta\\engine\\vanta-chromium.exe', engine_found: engineCheck.state !== 'not_bundled', engine_check: clone(engineCheck), data_dir: '%LOCALAPPDATA%\\Vanta', log_integrity: unlocked ? { state: 'ok' } : null, mock: true };
+      return { app_version: '0.1.0', initialized, unlocked, engine_version: ENGINE, engine_path: settings.engine_path ?? '%LOCALAPPDATA%\\Programs\\Vanta\\engine\\vanta-chromium.exe', engine_found: engineCheck.state !== 'not_bundled', engine_check: clone(engineCheck), geoip: clone(geoip), data_dir: '%LOCALAPPDATA%\\Vanta', log_integrity: unlocked ? { state: 'ok' } : null, mock: true };
     },
     async createVault(pw) {
       if (initialized) throw { kind: 'already_initialized' };
@@ -375,6 +380,52 @@ export function mockBackend(opts: MockOptions = {}): Backend {
         speed: sp,
       };
       return clone(x.view);
+    },
+    async geoPreview(ids) {
+      need();
+      if (geoip.state !== 'ready') throw { kind: 'unsupported', message: geoip.state === 'failed' ? `the GeoIP database is not usable: ${geoip.message}` : 'this build has no offline GeoIP database' };
+      await wait(500);
+      const geoText = (lat: number | null, lng: number | null) => lat == null || lng == null ? null : `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      return ids.map(id => {
+        const p = prof(id);
+        const plan: T.GeoPlan = { profile_id: id, name: p.meta.name, proxy_id: p.meta.proxy_id, exit_ip: null, location: null, changes: [], problem: null };
+        const x = p.meta.proxy_id ? proxies.find(y => y.view.id === p.meta.proxy_id) : undefined;
+        if (!x) { plan.problem = 'no proxy assigned'; return plan; }
+        if (x.kind === 'offline') { plan.problem = 'exit IP not measured: timed out'; return plan; }
+        plan.exit_ip = x.ip;
+        const c = COUNTRIES[x.cc];
+        if (!c) { plan.problem = `${x.ip} is not in the GeoIP database`; return plan; }
+        plan.location = { country: x.cc, country_name: c.name, region: null, city: c.city, latitude: c.lat, longitude: c.lng, timezone: c.tz };
+        const cur = profView(p);
+        const next = profView({ ...p, geo: 'ok', lang: undefined });
+        const fields: [T.GeoField, string | null, string, boolean][] = [
+          ['country', cur.country, next.country!, false], ['timezone', cur.timezone, next.timezone!, false],
+          ['geolocation', geoText(cur.latitude, cur.longitude), geoText(next.latitude, next.longitude)!, false],
+          ['locale', cur.locale, next.locale, true], ['languages', cur.languages.join(', '), next.languages.join(', '), true],
+          ['accept_language', cur.accept_language, next.accept_language, true],
+        ];
+        plan.changes = fields.filter(([, from, to]) => from !== to).map(([field, from, to, language]) => ({ field, from, to, language }));
+        return plan;
+      });
+    },
+    async geoApply(items) {
+      need();
+      if (geoip.state !== 'ready') throw { kind: 'unsupported', message: 'this build has no offline GeoIP database' };
+      await wait(200);
+      return items.map(it => {
+        const p = prof(it.profile_id);
+        const x = p.meta.proxy_id ? proxies.find(y => y.view.id === p.meta.proxy_id) : undefined;
+        if (p.meta.status === 'running') return { profile_id: it.profile_id, changed: false, error: 'the profile is already running' };
+        if (!x || x.ip !== it.exit_ip || !COUNTRIES[x.cc]) return { profile_id: it.profile_id, changed: false, error: `${it.exit_ip} is not in the GeoIP database` };
+        const before = JSON.stringify(profView(p));
+        const keep = profView(p).locale;
+        p.geo = 'ok'; p.lang = it.languages ? undefined : keep;
+        const changed = JSON.stringify(profView(p)) !== before;
+        if (changed) { p.health = null; p.meta.health = 0; }
+        p.meta.exit_ip = x.ip; p.meta.country = x.cc;
+        if (p.meta.status === 'blocked') p.meta.status = 'stopped';
+        return { profile_id: it.profile_id, changed, error: null };
+      });
     },
     async launchProfile(id, confirmed = false) {
       need(); const p = prof(id);

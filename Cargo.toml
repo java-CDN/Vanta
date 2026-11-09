@@ -43,6 +43,7 @@ vanta-log = { path = "crates/vanta-log" }
 vanta-launcher = { path = "crates/vanta-launcher" }
 vanta-health = { path = "crates/vanta-health" }
 vanta-core = { path = "crates/vanta-core" }
+vanta-geo = { path = "crates/vanta-geo" }
 
 [profile.release]
 lto = "thin"

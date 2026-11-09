@@ -27,6 +27,8 @@ const COMMANDS: &[&str] = &[
     "assign_proxy",
     "test_proxy",
     "inspect_proxy",
+    "geo_preview",
+    "geo_apply",
     "launch_profile",
     "stop_profile",
     "running_profiles",

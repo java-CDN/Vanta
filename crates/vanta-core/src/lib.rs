@@ -39,6 +39,12 @@
 //! only: exit IP with ASN / organisation / country, SOCKS5 UDP support, DNS blocklists over
 //! DoH through the proxy and, on request, a bounded speed test. Stored with the proxy.
 //!
+//! **Geo Auto-Match** ([`VantaApp::geo_preview`], [`VantaApp::geo_apply`], F07): each
+//! proxy's exit IP, measured through the proxy, is looked up in the bundled offline GeoIP
+//! database (`vanta-geo`, DB-IP Lite); timezone, geolocation and optionally locale /
+//! languages / Accept-Language follow it; the UA never changes. A launch whose proxy's last
+//! known exit IP is in another country than the profile is blocked (`geo_mismatch`, C018).
+//!
 //! Test seams: [`EngineSpawner`] (the engine process), [`NetFactory`] (DoH), [`IpEcho`]
 //! (exit and host IP), [`ProxyChecker`] (Proxy Hub checks) and, in this crate's own tests only, a custom relay client policy. Release builds can only use
 //! [`RelayClients::ProcessTree`].
@@ -50,8 +56,8 @@ pub mod engine_check;
 mod error;
 
 pub use app::{
-    launch_config_path, AppConfig, EngineInfo, VantaApp, MAX_FAILED_LAUNCHES, SECRET_LOG_HEAD,
-    SECRET_SIGNING_KEY,
+    launch_config_path, AppConfig, EngineInfo, GeoState, VantaApp, MAX_FAILED_LAUNCHES,
+    SECRET_LOG_HEAD, SECRET_SIGNING_KEY,
 };
 pub use deps::{
     Deps, DohNet, EngineSpawner, HttpsIpEcho, IpEcho, NetFactory, OsSpawner, ProxyChecker,

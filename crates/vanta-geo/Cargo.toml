@@ -1,0 +1,15 @@
+[package]
+name = "vanta-geo"
+description = "Offline GeoIP (DB-IP IP to City Lite, MMDB) for Geo Auto-Match (F07)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vanta-fingerprint.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+maxminddb = "0.32"
+memmap2 = "0.9"

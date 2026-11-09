@@ -21,6 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true
 vanta-core.workspace = true
+vanta-geo.workspace = true
 vanta-types.workspace = true
 vanta-proxy.workspace = true
 vanta-vault.workspace = true

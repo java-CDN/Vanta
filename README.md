@@ -324,6 +324,18 @@ desktop job (vitest, bundle budget, smoke over the mock build, clippy for `vanta
 7 days) on `windows-latest`, and the no-telemetry scan on `ubuntu-latest`, for every push and
 pull request to `main`.
 
+## Third-party data
+
+Geo Auto-Match (F07) uses the **DB-IP "IP to City Lite"** database
+([db-ip.com](https://db-ip.com/db/download/ip-to-city-lite)), licensed under
+[Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/):
+<a href='https://db-ip.com'>IP Geolocation by DB-IP</a>. The database is not stored in this
+repository. The desktop CI job downloads the current monthly release with
+`scripts/fetch_geoip.py`, checks it against the SHA-1/MD5 DB-IP publishes, and ships it in
+the installer as `geoip\`; the app checks its SHA-256 at start and looks IPs up offline
+(nothing is sent anywhere). Time zones are derived from country + coordinates, because the
+Lite database has none. The attribution is also shown in Settings › About.
+
 ## License
 
 No license has been chosen yet. All rights reserved by the authors until one is added.

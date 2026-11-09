@@ -196,6 +196,13 @@ await check('assign proxy (shared warning)', async () => {
 await check('delete proxy', async () => { const n = await rows().count(); await rows().last().locator('[data-a=pxMenu]').click(); await page.click('#menu [data-a=pxDel]'); await page.click('#cfOk'); return until(async () => (await rows().count()) === n - 1, 3000); });
 await check('test all', async () => { await page.click('[data-a=pxTestAll]'); return until(async () => (await toasts()).includes('Tested'), 15000); });
 await check('geo tab', async () => { await page.click('.tabs [data-id=geo]'); await sleep(200); return (await page.evaluate(() => location.hash)) === '#/geo' && await until(async () => (await page.locator('tbody .pill.bad', { hasText: 'mismatch' }).count()) >= 1, 4000); });
+await check('geo match now -> review -> apply', async () => {
+  const row = page.locator('tbody tr', { has: page.locator('.pill.bad', { hasText: 'mismatch' }) }).first();
+  await row.locator('[data-a=geoOne]').click();
+  if (!await until(async () => (await page.locator('#geoApply').count()) === 1, 6000)) return false;
+  await page.click('#geoApply');
+  return until(async () => (await toasts()).includes('Geo Auto-Match:'), 6000);
+});
 // 8 network guard
 await check('network guards locked on', async () => { await go('network'); await sleep(200); return (await page.locator('.card .tog.on.locked').count()) >= 7 && (await page.locator('.tog:not(.locked)').count()) === 0; });
 await check('per-profile DoH provider', async () => { await until(async () => (await page.locator('select[aria-label^="DoH provider"]').count()) > 0); await page.locator('select[aria-label^="DoH provider"]').first().selectOption('quad9'); return until(async () => (await toasts()).includes('DoH via Quad9')); });
@@ -219,6 +226,7 @@ await check('engine version read-only, path setting', async () => { await page.c
 await check('Proxy Hub check URLs (privacy)', async () => { await page.click('[data-a=setSec][data-id=privacy]'); await sleep(100); const shown = (await body()).includes('ipinfo.io/json') && (await body()).includes('only through the proxy being checked'); await page.fill('#setSpeed', 'http://dl.example/x'); await sleep(60); const refused = (await page.locator('[data-a=saveSpeed]').isDisabled()) && (await page.locator('#speedErr').innerText()).includes('https://'); await page.fill('#setInfo', 'https://ipwho.is/'); await page.click('[data-a=saveInfo]'); const saved = await until(async () => (await toasts()).includes('IP information URL saved')); await page.fill('#setInfo', ''); await page.click('[data-a=saveInfo]'); await page.fill('#setSpeed', ''); await sleep(80); return shown && refused && saved; });
 await check('IP echo URL setting (privacy)', async () => { await page.click('[data-a=setSec][data-id=privacy]'); await sleep(100); if (!(await body()).includes('api.ipify.org')) return false; await page.fill('#setEcho', 'http://icanhazip.com/'); await sleep(60); const refused = (await page.locator('[data-a=saveEcho]').isDisabled()) && (await page.locator('#echoErr').innerText()).includes('https://'); await page.fill('#setEcho', 'https://icanhazip.com/'); await sleep(60); await page.click('[data-a=saveEcho]'); const saved = await until(async () => (await toasts()).includes('IP echo URL saved')); await page.fill('#setEcho', ''); await page.click('[data-a=saveEcho]'); await sleep(80); return refused && saved; });
 await check('theme switch', async () => { await page.click('[data-a=setSec][data-id=appearance]'); await sleep(80); await page.click('.seg [data-a=setTheme][data-id=light]'); await sleep(150); return (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light'; });
+await check('About: DB-IP attribution (CC BY 4.0)', async () => { await page.click('[data-a=setSec][data-id=about]'); await sleep(100); const t = await page.locator('#geoAttribution').innerText(); return t.includes('IP geolocation by DB-IP') && t.includes('db-ip.com') && t.includes('CC BY 4.0') && t.includes('2026-11'); });
 await page.screenshot({ path: path.join(shots, '10-settings-light.png') }).catch(() => {});
 await page.click('.seg [data-a=setTheme][data-id=dark]').catch(() => {});
 // 11 lock

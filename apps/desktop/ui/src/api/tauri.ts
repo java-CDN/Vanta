@@ -41,6 +41,8 @@ export function tauriBackend(invoke: Invoke, listen: Listen): Backend {
     assignProxy: (profileId, proxyId) => invoke('assign_proxy', { profileId, proxyId }),
     testProxy: proxyId => invoke('test_proxy', { proxyId }),
     inspectProxy: (proxyId, speed) => invoke('inspect_proxy', { proxyId, speed }),
+    geoPreview: ids => invoke('geo_preview', { ids }),
+    geoApply: items => invoke('geo_apply', { items }),
     launchProfile: (id, confirmed = false) => invoke('launch_profile', confirmed ? { id, confirmed: true } : { id }),
     stopProfile: id => invoke('stop_profile', { id }),
     runningProfiles: () => invoke('running_profiles'),

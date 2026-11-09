@@ -3,6 +3,8 @@
 
 pub mod config;
 pub mod device;
+pub mod geo;
+mod geo_tables;
 pub mod persona;
 pub mod rules;
 pub mod ua;

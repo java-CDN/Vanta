@@ -200,7 +200,7 @@ export function AppProvider({ b, initialInfo, initialSettings, children }: { b: 
 
   // The bundled engine is hashed in the background at start: follow the check to its end.
   useEffect(() => {
-    if (info.engine_check.state !== 'pending') return;
+    if (info.engine_check.state !== 'pending' && info.geoip.state !== 'loading') return;
     const t = setTimeout(() => {
       b.appInfo().then(i => {
         setInfo(i);

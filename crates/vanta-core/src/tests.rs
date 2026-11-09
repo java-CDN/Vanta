@@ -2202,3 +2202,239 @@ async fn edit_clears_checks_only_when_the_endpoint_or_login_changes() {
     assert!(v.checks.is_none());
     assert!(e.app.inspect_proxy("missing", false).await.is_err());
 }
+
+// ---- Geo Auto-Match (F07) ------------------------------------------------------------
+
+fn with_geo_db(e: &Env) {
+    let db = vanta_geo::GeoDb::from_bytes(vanta_geo::testkit::sample_db()).unwrap();
+    e.app.set_geo_db(GeoState::Ready(Arc::new(db)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn geo_match_previews_then_applies_without_touching_the_ua() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, proxy) = setup(&e, &up);
+    let id2 = e
+        .app
+        .create_profile(NewProfile {
+            name: "second".into(),
+            proxy_id: Some(proxy.clone()),
+            ..Default::default()
+        })
+        .unwrap()
+        .id;
+    // No database in this build: refused, nothing measured.
+    assert!(matches!(
+        e.app.geo_preview(&[id]).await,
+        Err(CoreError::Unsupported { .. })
+    ));
+    assert!(matches!(e.app.geo_db_status(), GeoDbStatus::NotBundled));
+    with_geo_db(&e);
+    assert!(matches!(e.app.geo_db_status(), GeoDbStatus::Ready { .. }));
+    let before = e.app.fingerprint(id).unwrap();
+    assert_eq!(before.timezone, None);
+
+    // EXIT_IP (198.51.100.20) is Frankfurt in the test database.
+    let calls = e.echo.exit_calls.lock().unwrap().len();
+    let plans = e.app.geo_preview(&[id, id2]).await.unwrap();
+    // Both profiles share the proxy: measured once, through the proxy.
+    let exit_calls = e.echo.exit_calls.lock().unwrap()[calls..].to_vec();
+    assert_eq!(exit_calls.len(), 1);
+    assert_eq!(exit_calls[0].1, up.addr.port());
+    let p = &plans[0];
+    assert_eq!(p.problem, None);
+    assert_eq!(p.proxy_id.as_deref(), Some(proxy.as_str()));
+    assert_eq!(p.exit_ip.as_deref(), Some(EXIT_IP));
+    let loc = p.location.as_ref().unwrap();
+    assert_eq!(
+        (
+            loc.country.as_str(),
+            loc.city.as_deref(),
+            loc.timezone.as_deref()
+        ),
+        ("DE", Some("Frankfurt am Main"), Some("Europe/Berlin"))
+    );
+    let field = |f: &str| p.changes.iter().find(|c| c.field == f).cloned();
+    assert_eq!(field("timezone").unwrap().to, "Europe/Berlin");
+    assert_eq!(field("timezone").unwrap().from, None);
+    assert_eq!(field("locale").unwrap().to, "de-DE");
+    assert!(field("locale").unwrap().language);
+    assert!(field("accept_language")
+        .unwrap()
+        .to
+        .starts_with("de-DE,de;q=0.9"));
+    assert!(!field("geolocation").unwrap().language);
+    // A preview changes nothing.
+    assert_eq!(e.app.fingerprint(id).unwrap().timezone, None);
+
+    // Apply with languages for the first, without for the second.
+    fresh_health(&e, id, &proxy, 90);
+    let res = e
+        .app
+        .geo_apply(&[
+            GeoApply {
+                profile_id: id,
+                exit_ip: EXIT_IP.into(),
+                languages: true,
+            },
+            GeoApply {
+                profile_id: id2,
+                exit_ip: EXIT_IP.into(),
+                languages: false,
+            },
+        ])
+        .unwrap();
+    assert!(
+        res.iter().all(|r| r.changed && r.error.is_none()),
+        "{res:?}"
+    );
+    let fp = e.app.fingerprint(id).unwrap();
+    assert_eq!(fp.timezone.as_deref(), Some("Europe/Berlin"));
+    assert_eq!(fp.country.as_deref(), Some("DE"));
+    assert_eq!(fp.locale, "de-DE");
+    assert_eq!(fp.languages[0], "de-DE");
+    assert!(fp.accept_language.starts_with("de-DE,"));
+    assert_eq!(fp.user_agent, before.user_agent, "UA unchanged");
+    assert_eq!(fp.sec_ch_ua, before.sec_ch_ua);
+    let d = vanta_fingerprint::geo::distance_km(
+        50.1109,
+        8.6821,
+        fp.latitude.unwrap(),
+        fp.longitude.unwrap(),
+    );
+    assert!(d <= 1.1, "{d} km from the database point");
+    // C018 passes for the matched values.
+    let c18 = fp.rules.iter().find(|r| r.id == "C018").unwrap();
+    assert_eq!(c18.level, "pass", "{}", c18.message);
+    assert!(fp.rules.iter().all(|r| r.level != "fail"));
+    // The persona changed, so its health report no longer applies.
+    assert!(e.app.store_for_tests().get_health(id).unwrap().is_none());
+    let meta = e.app.store_for_tests().get(id).unwrap();
+    assert_eq!(
+        (meta.exit_ip.as_str(), meta.country.as_str()),
+        (EXIT_IP, "DE")
+    );
+    let fp2 = e.app.fingerprint(id2).unwrap();
+    assert_eq!(fp2.timezone.as_deref(), Some("Europe/Berlin"));
+    assert_eq!(fp2.locale, "en-US", "languages kept when not selected");
+
+    // Matched: a second preview has nothing left to change (same point, same seed).
+    let again = e.app.geo_preview(&[id]).await.unwrap();
+    assert!(again[0].changes.is_empty(), "{:?}", again[0].changes);
+    let res = e
+        .app
+        .geo_apply(&[GeoApply {
+            profile_id: id,
+            exit_ip: EXIT_IP.into(),
+            languages: true,
+        }])
+        .unwrap();
+    assert!(!res[0].changed);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn geo_preview_reports_problems_per_profile() {
+    let up = upstream(USER, PASSWORD).await;
+    let e = env();
+    let (id, _) = setup(&e, &up);
+    with_geo_db(&e);
+    let lone = e
+        .app
+        .create_profile(NewProfile {
+            name: "no proxy".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .id;
+    // An exit outside the database.
+    e.echo.set_exit(vec![Ok(ip("10.9.8.7"))]);
+    let plans = e.app.geo_preview(&[id, lone]).await.unwrap();
+    assert!(plans[0]
+        .problem
+        .as_deref()
+        .unwrap()
+        .contains("not in the GeoIP database"));
+    assert_eq!(plans[1].problem.as_deref(), Some("no proxy assigned"));
+    // A country without a zone table.
+    e.echo.set_exit(vec![Ok(ip("192.0.2.9"))]);
+    let plans = e.app.geo_preview(&[id]).await.unwrap();
+    assert!(plans[0]
+        .problem
+        .as_deref()
+        .unwrap()
+        .contains("no time zone table"));
+    assert!(plans[0].changes.is_empty());
+    // The exit could not be measured.
+    e.echo.set_exit(vec![Err(NetError::Timeout)]);
+    let plans = e.app.geo_preview(&[id]).await.unwrap();
+    assert!(plans[0]
+        .problem
+        .as_deref()
+        .unwrap()
+        .contains("exit IP not measured"));
+    // Apply refuses an address outside the database and a non-address.
+    let r = e
+        .app
+        .geo_apply(&[
+            GeoApply {
+                profile_id: id,
+                exit_ip: "10.9.8.7".into(),
+                languages: true,
+            },
+            GeoApply {
+                profile_id: id,
+                exit_ip: "nope".into(),
+                languages: true,
+            },
+        ])
+        .unwrap();
+    assert!(r.iter().all(|x| !x.changed && x.error.is_some()));
+    assert_eq!(e.app.fingerprint(id).unwrap().timezone, None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exit_country_change_blocks_launch_until_rematched() {
+    let up = upstream(USER, PASSWORD).await;
+    let (e, checker) = env_checker();
+    let (id, proxy) = setup(&e, &up);
+    with_geo_db(&e);
+    e.app
+        .geo_apply(&[GeoApply {
+            profile_id: id,
+            exit_ip: EXIT_IP.into(),
+            languages: true,
+        }])
+        .unwrap();
+    fresh_health(&e, id, &proxy, 90);
+    // The proxy now exits in the US (Proxy Hub check).
+    *checker.info.lock().unwrap() = Ok(vanta_proxy::IpInfo {
+        ip: Some(ip("203.0.113.5")),
+        country: Some("US".into()),
+        ..Default::default()
+    });
+    e.app.inspect_proxy(&proxy, false).await.unwrap();
+    let err = e.app.launch_profile(id).await.unwrap_err();
+    assert_eq!(codes(&err), ["geo_mismatch"]);
+    let CoreError::Blocked { reasons } = &err else {
+        unreachable!()
+    };
+    assert!(reasons[0].message.contains("203.0.113.5 is in US"));
+    assert_eq!(e.engine.count(), 0);
+    // Re-matched to the new exit: the country fits again (the health run is due again).
+    e.app
+        .geo_apply(&[GeoApply {
+            profile_id: id,
+            exit_ip: "203.0.113.5".into(),
+            languages: false,
+        }])
+        .unwrap();
+    let fp = e.app.fingerprint(id).unwrap();
+    assert_eq!(fp.timezone.as_deref(), Some("America/Los_Angeles"));
+    fresh_health(&e, id, &proxy, 90);
+    let err = e.app.launch_profile(id).await;
+    assert!(
+        !matches!(&err, Err(CoreError::Blocked { reasons }) if reasons.iter().any(|r| r.code == "geo_mismatch")),
+        "{err:?}"
+    );
+}

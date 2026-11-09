@@ -112,6 +112,30 @@ jobs:
           python scripts/stage_engine.py --from "$RUNNER_TEMP/engine-dl"
           --to apps/desktop/src-tauri/engine-bundle --version-file engine/VERSION
           --tauri-config apps/desktop/src-tauri/tauri.engine.json
+      # Geo Auto-Match database (DB-IP IP to City Lite, CC BY 4.0; not kept in git).
+      # scripts/fetch_geoip.py checks the release month, SHA-1/MD5 published by DB-IP,
+      # size and MMDB type. The .gz is cached per month. If db-ip.com is down or the file
+      # fails a check, the installer is built without it (Geo Auto-Match shows "not
+      # bundled") and the run warns instead of failing.
+      - name: GeoIP cache key
+        id: geoip-key
+        shell: bash
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/geoip-cache
+          key: geoip-dbip-city-lite-${{ steps.geoip-key.outputs.month }}
+      - name: fetch GeoIP database (DB-IP Lite)
+        working-directory: .
+        shell: bash
+        run: |
+          if python scripts/fetch_geoip.py --to apps/desktop/src-tauri/geoip-bundle \
+              --tauri-config apps/desktop/src-tauri/tauri.geoip.json --cache "$RUNNER_TEMP/geoip-cache"; then
+            cat apps/desktop/src-tauri/geoip-bundle/geoip.json
+          else
+            rm -rf apps/desktop/src-tauri/geoip-bundle apps/desktop/src-tauri/tauri.geoip.json
+            echo "::warning::GeoIP database not fetched; installer built without Geo Auto-Match data"
+          fi
       - name: tauri build (NSIS, unsigned)
         shell: bash
         # The bundler downloads NSIS from GitHub releases, which sometimes answers 504:
@@ -121,6 +145,10 @@ jobs:
           if [ -f src-tauri/tauri.engine.json ]; then
             echo "bundling the staged engine"
             args+=(--config src-tauri/tauri.engine.json)
+          fi
+          if [ -f src-tauri/tauri.geoip.json ]; then
+            echo "bundling the GeoIP database"
+            args+=(--config src-tauri/tauri.geoip.json)
           fi
           for attempt in 1 2 3 4; do
             if npx tauri build "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"; then
@@ -159,7 +187,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: stage_engine.py tests
+      - name: script tests (stage_engine, fetch_geoip)
         run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
   no-telemetry:

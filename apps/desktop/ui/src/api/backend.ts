@@ -39,6 +39,12 @@ export interface Backend {
   /** Reachability, then through the proxy: exit IP / ASN / country, UDP, blocklists and,
    *  with `speed`, a bounded speed test. Stored with the proxy only. */
   inspectProxy(proxyId: string, speed: boolean): Promise<T.ProxyView>;
+  // Geo Auto-Match
+  /** Exit IP of each profile's proxy (measured through the proxy), looked up in the offline
+   *  GeoIP database, and what would change. Nothing is stored. */
+  geoPreview(ids: string[]): Promise<T.GeoPlan[]>;
+  /** Apply previewed matches the user confirmed. The user agent never changes. */
+  geoApply(items: T.GeoApply[]): Promise<T.GeoApplyResult[]>;
   // launch & health
   /** `confirmed`: the user confirmed one more attempt after repeated failed launches
    *  (the plain call rejects with `confirm_required` then; see MAX_FAILED_LAUNCHES). */

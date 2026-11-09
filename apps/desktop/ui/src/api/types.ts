@@ -237,6 +237,43 @@ export type EngineCheck =
   | { state: 'verified'; files: number }
   | { state: 'failed'; message: string };
 
+/** The offline GeoIP database (DB-IP IP to City Lite) behind Geo Auto-Match. */
+export interface GeoDbInfo { database_type: string; release: string; license: string; attribution: string }
+export type GeoDbStatus =
+  | { state: 'not_bundled' }
+  | { state: 'loading' }
+  | { state: 'ready'; info: GeoDbInfo }
+  | { state: 'failed'; message: string };
+
+export interface GeoLocation {
+  country: string;
+  country_name: string | null;
+  region: string | null;
+  city: string | null;
+  latitude: number;
+  longitude: number;
+  timezone: string | null;
+}
+
+export type GeoField = 'country' | 'timezone' | 'geolocation' | 'locale' | 'languages' | 'accept_language';
+/** One value Geo Auto-Match would change; `language` ones apply only with "languages" on. */
+export interface GeoFieldChange { field: GeoField; from: string | null; to: string; language: boolean }
+
+/** Preview for one profile: no changes and no problem = already matched. */
+export interface GeoPlan {
+  profile_id: string;
+  name: string;
+  proxy_id: string | null;
+  exit_ip: string | null;
+  location: GeoLocation | null;
+  changes: GeoFieldChange[];
+  problem: string | null;
+}
+
+/** A confirmed match: the exit IP the preview showed; `languages` = also set locale / languages / Accept-Language. */
+export interface GeoApply { profile_id: string; exit_ip: string; languages: boolean }
+export interface GeoApplyResult { profile_id: string; changed: boolean; error: string | null }
+
 export interface AppInfo {
   app_version: string;
   initialized: boolean;
@@ -246,6 +283,8 @@ export interface AppInfo {
   engine_found: boolean;
   /** SHA256SUMS check of an engine shipped with the installer (vanta_core::EngineCheck). */
   engine_check: EngineCheck;
+  /** The bundled offline GeoIP database (Geo Auto-Match). */
+  geoip: GeoDbStatus;
   data_dir: string;
   /** Result of the activity-log verification at the last unlock. */
   log_integrity: LogIntegrity | null;

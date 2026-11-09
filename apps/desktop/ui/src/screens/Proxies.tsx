@@ -354,10 +354,55 @@ export function ProxiesScreen() {
 
 type GeoRow = { p: T.ProfileMeta; fp?: T.FingerprintView; st: 'ok' | 'mismatch' | 'unknown' | 'noproxy' };
 
+const GEO_FIELD: Record<T.GeoField, string> = { country: 'Country', timezone: 'Timezone', geolocation: 'Geolocation', locale: 'Locale', languages: 'Languages', accept_language: 'Accept-Language' };
+const place = (l: T.GeoLocation) => [l.city, l.region, l.country_name ?? l.country].filter(Boolean).join(', ');
+
+/** The review dialog: what each profile would get from its exit IP; nothing changes until "Apply". */
+function GeoReview({ plans, onApply, onCancel }: { plans: T.GeoPlan[]; onApply: (items: T.GeoApply[]) => Promise<void>; onCancel: () => void }) {
+  const actionable = plans.filter(p => !p.problem && p.exit_ip && p.changes.length);
+  const [sel, setSel] = useState<Set<string>>(() => new Set(actionable.map(p => p.profile_id)));
+  const [langs, setLangs] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const matched = plans.filter(p => !p.problem && !p.changes.length);
+  const problems = plans.filter(p => p.problem);
+  const visible = (p: T.GeoPlan) => p.changes.filter(c => langs || !c.language);
+  const chosen = actionable.filter(p => sel.has(p.profile_id) && visible(p).length);
+  const toggle = (id: string) => setSel(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  return <><div className="mb"><div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '64vh' }}>
+    <div className="dim" style={{ fontSize: 12, lineHeight: 1.5 }}>Each proxy's exit IP was measured through the proxy and looked up in the offline GeoIP database on this PC. Review the changes; nothing is changed until you apply. The user agent stays as it is. A changed profile needs a new health check before its next launch.</div>
+    <label className="row" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }} id="geoLangs">
+      <input type="checkbox" checked={langs} onChange={e => setLangs(e.target.checked)} />
+      <span>Also set locale, languages and Accept-Language from the exit country</span>
+    </label>
+    <div className="tw" style={{ overflow: 'auto', minHeight: 0 }}>
+      {actionable.length ? <table id="geoReview"><thead><tr><th /><th>Profile</th><th>Exit</th><th>Changes</th></tr></thead><tbody>
+        {actionable.map(p => <tr key={p.profile_id} data-id={p.profile_id}>
+          <td><input type="checkbox" aria-label={`Apply to ${p.name}`} checked={sel.has(p.profile_id)} onChange={() => toggle(p.profile_id)} /></td>
+          <td><b style={{ fontWeight: 600 }}>{p.name}</b></td>
+          <td><CC c={p.location?.country} /> <span className="mono">{p.exit_ip}</span>{p.location && <div className="dim" style={{ fontSize: 11 }}>{place(p.location)}</div>}</td>
+          <td>{visible(p).length ? visible(p).map(c => <div key={c.field} className="geo-chg" style={{ fontSize: 11.5 }}>
+            <span className="muted">{GEO_FIELD[c.field]}:</span> <span className="dim mono">{c.from ?? 'unset'}</span> → <b className="mono">{c.to}</b></div>)
+            : <span className="dim">only language changes (not selected)</span>}</td>
+        </tr>)}</tbody></table>
+        : <Empty icon="check" title="Nothing to change" text="Every profile here already matches its exit IP, or could not be matched." />}
+    </div>
+    {(matched.length > 0 || problems.length > 0) && <div className="dim" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+      {matched.length > 0 && <div>Already matched: {matched.map(p => p.name).join(', ')}</div>}
+      {problems.map(p => <div key={p.profile_id} className="warn" data-a="geoProblem">{p.name}: {p.problem}</div>)}
+    </div>}
+  </div></div>
+    <div className="mf">
+      <button className="btn" onClick={onCancel} disabled={busy}>Cancel</button>
+      <button className="btn p" id="geoApply" disabled={busy || !chosen.length} onClick={async () => { setBusy(true); try { await onApply(chosen.map(p => ({ profile_id: p.profile_id, exit_ip: p.exit_ip!, languages: langs }))); } finally { setBusy(false); } }}>
+        {busy ? <Spin s={11} /> : <Icon n="wand" s={14} />}Apply to {chosen.length} profile{chosen.length === 1 ? '' : 's'}</button>
+    </div></>;
+}
+
 export function GeoScreen() {
   const a = useApp();
   const [fps, setFps] = useState<Record<string, T.FingerprintView>>({});
   const [f, setF] = useState<'all' | 'mismatch' | 'ok' | 'unknown'>('all');
+  const [running, setRunning] = useState<Set<string>>(new Set());
   const LIMIT = 500;
   useEffect(() => {
     let live = true;
@@ -370,36 +415,66 @@ export function GeoScreen() {
       }
     }));
     return () => { live = false; };
-  }, [a.profiles.length, a.b]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [a.profiles.length, a.b, fps]); // eslint-disable-line react-hooks/exhaustive-deps
+  const db = a.info.geoip;
+  const ready = db.state === 'ready';
+  const why = db.state === 'not_bundled' ? 'This build has no offline GeoIP database' : db.state === 'loading' ? 'Checking the GeoIP database…' : db.state === 'failed' ? `GeoIP database not usable: ${db.message}` : '';
   const rows: GeoRow[] = a.profiles.slice(0, LIMIT).map(p => {
     const fp = fps[p.id];
     const c18 = fp?.rules.find(r => r.id === 'C018');
-    const st: GeoRow['st'] = !p.proxy_id ? 'noproxy' : c18?.level === 'fail' ? 'mismatch' : fp?.timezone && c18?.level === 'pass' ? 'ok' : 'unknown';
+    // Mismatch: the timezone does not fit the location (C018), or the location is not the
+    // country of the exit IP last measured for this profile.
+    const away = !!fp?.country && !!p.country && fp.country.toUpperCase() !== p.country.toUpperCase();
+    const st: GeoRow['st'] = !p.proxy_id ? 'noproxy' : c18?.level === 'fail' || away ? 'mismatch' : fp?.timezone && c18?.level === 'pass' ? 'ok' : 'unknown';
     return { p, fp, st };
   });
   const n = (s: GeoRow['st']) => rows.filter(r => r.st === s).length;
   const list = rows.filter(r => f === 'all' || r.st === f);
   const pill = { ok: <span className="pill ok">matched</span>, mismatch: <span className="pill bad">mismatch</span>, unknown: <span className="pill info">not located yet</span>, noproxy: <span className="pill">no proxy</span> };
+
+  const match = async (ids: string[]) => {
+    if (!ids.length) return;
+    setRunning(new Set(ids));
+    let plans: T.GeoPlan[];
+    try { plans = await a.b.geoPreview(ids); } catch (e) { a.fail(e); setRunning(new Set()); return; }
+    setRunning(new Set());
+    const apply = async (items: T.GeoApply[]) => {
+      try {
+        const res = await a.b.geoApply(items);
+        const changed = res.filter(r => r.changed).length; const bad = res.filter(r => r.error);
+        setFps(m => { const c = { ...m }; items.forEach(i => delete c[i.profile_id]); return c; });
+        await a.refreshProfiles();
+        a.closeModal();
+        if (bad.length) a.toast(<>{bad.length} profile{bad.length === 1 ? '' : 's'} not matched: {bad[0].error}</>, 'bad', 'pin');
+        a.toast(<>Geo Auto-Match: {changed} profile{changed === 1 ? '' : 's'} updated{changed ? ' · run a health check before the next launch' : ''}</>, changed ? 'ok' : '', 'pin');
+      } catch (e) { a.fail(e); }
+    };
+    a.openModal({ title: ids.length === 1 ? `Geo Auto-Match · ${plans[0]?.name ?? ''}` : `Geo Auto-Match · ${ids.length} profiles`, width: 860, raw: true,
+      body: <GeoReview plans={plans} onApply={apply} onCancel={() => a.closeModal()} /> });
+  };
+  const matchAll = () => match(rows.filter(r => r.st !== 'noproxy' && r.p.status !== 'running').map(r => r.p.id));
+
   return (
-    <Main title="Geo Auto-Match" sub="Timezone, locale, languages and geolocation follow each profile's proxy exit IP. Lookups use the offline GeoIP database."
-      actions={<><span className="muted" style={{ fontSize: 12 }}>On launch: ask if the country changes</span><button className="btn p" disabled title="Needs the bundled offline GeoIP database (not in this build)"><Icon n="wand" s={14} />Match all</button></>}
+    <Main title="Geo Auto-Match" sub="Timezone, locale, languages and geolocation follow each profile's proxy exit IP. Lookups use the offline GeoIP database on this PC."
+      actions={<><span className="muted" style={{ fontSize: 12 }}>On launch: blocked if the exit country changed</span><button className="btn p" data-a="geoAll" disabled={!ready || running.size > 0} title={why || 'Measure every exit IP and review the changes'} onClick={matchAll}>{running.size > 1 ? <Spin s={11} /> : <Icon n="wand" s={14} />}Match all</button></>}
       contentStyle={{ overflow: 'hidden' }}>
       <ProxyTabs active="geo" />
       <div className="row" style={{ gap: 12, flex: 'none' }}>
         <div className="card stat"><div className="k">Matched</div><div className="v ok">{n('ok')}</div></div>
-        <div className="card stat"><div className="k">Mismatch</div><div className={`v ${n('mismatch') ? 'bad' : ''}`}>{n('mismatch')} <small>· timezone ≠ exit IP country (C018)</small></div></div>
+        <div className="card stat"><div className="k">Mismatch</div><div className={`v ${n('mismatch') ? 'bad' : ''}`}>{n('mismatch')} <small>· location ≠ exit IP country (C018)</small></div></div>
         <div className="card stat"><div className="k">Not located yet</div><div className="v">{n('unknown')}</div></div>
         <div className="card stat"><div className="k">No proxy</div><div className="v">{n('noproxy')}</div></div>
       </div>
       <div className="card" style={{ flex: 1, padding: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--line)', alignItems: 'center' }}>
           <Seg value={f} onChange={setF} options={[['all', 'All'], ['mismatch', 'Mismatch'], ['ok', 'Matched'], ['unknown', 'Not located']]} name="Filter" />
-          <span className="muted" style={{ marginLeft: 'auto', fontSize: 12 }}>{a.profiles.length > LIMIT ? `First ${LIMIT} profiles · ` : ''}Matching runs at launch once the GeoIP database ships</span>
+          <span className="muted" id="geoDb" style={{ marginLeft: 'auto', fontSize: 12 }}>{a.profiles.length > LIMIT ? `First ${LIMIT} profiles · ` : ''}{ready ? `${db.info.attribution.replace(/ \(.*\)$/, '')} · ${db.info.release}` : why}</span>
         </div>
         <div className="tw">{list.length ? <table><thead><tr><th>Profile</th><th>Proxy exit</th><th>Timezone</th><th>Locale</th><th>Languages</th><th>Geolocation</th><th>Status</th><th /></tr></thead><tbody>
           {list.map(({ p, fp, st }) => {
             const px = a.proxyOf(p);
-            return <tr key={p.id} className={a.routeArg === p.id ? 'flash' : ''}>
+            const busy = running.has(p.id);
+            return <tr key={p.id} data-id={p.id} className={a.routeArg === p.id ? 'flash' : ''}>
               <td><b style={{ fontWeight: 600 }}>{p.name}</b><div className="dim" style={{ fontSize: 11 }}><OsBadge os={p.os} /></div></td>
               <td>{px ? (p.exit_ip ? <><CC c={p.country} /> <span className="mono">{p.exit_ip}</span></> : <span className="dim">{px.host} · not measured</span>) : <span className="dim">—</span>}</td>
               {fp ? <>
@@ -409,7 +484,10 @@ export function GeoScreen() {
                 <td>{fp.latitude != null ? <>{fp.latitude.toFixed(2)}, {fp.longitude?.toFixed(2)}<div className="dim" style={{ fontSize: 10.5 }}>{fp.country}</div></> : <span className="dim">unset</span>}</td>
               </> : <td colSpan={4}><Spin s={10} style={{ color: 'var(--accent2)' }} /> <span className="acc">Reading persona…</span></td>}
               <td>{pill[st]}</td>
-              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><button className={`btn s ${st === 'mismatch' ? 'p' : ''}`} disabled title="Needs the bundled offline GeoIP database (not in this build)"><Icon n="pin" s={12} />Match now</button></td>
+              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}><button className={`btn s ${st === 'mismatch' ? 'p' : ''}`} data-a="geoOne"
+                disabled={!ready || !p.proxy_id || p.status === 'running' || running.size > 0}
+                title={why || (!p.proxy_id ? 'Assign a proxy first' : p.status === 'running' ? 'Stop the profile first' : 'Measure the exit IP and review the changes')}
+                onClick={() => match([p.id])}>{busy ? <Spin s={11} /> : <Icon n="pin" s={12} />}Match now</button></td>
             </tr>;
           })}</tbody></table>
           : <Empty icon="check" title="Nothing here" text={f === 'mismatch' ? 'Every profile matches its exit IP.' : 'No profiles in this view.'} />}</div>

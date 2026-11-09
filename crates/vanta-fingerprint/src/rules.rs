@@ -137,98 +137,10 @@ const NON_WINDOWS_FONTS: &[&str] = &[
 /// Windows display-scaling steps offered in Settings (100–200 %).
 const WINDOWS_DPR: [f64; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
 
-/// IANA zones that are plausible for an exit country. Unknown country -> cannot verify.
-pub fn timezones_for(country: &str) -> Option<&'static [&'static str]> {
-    const T: &[(&str, &[&str])] = &[
-        ("DE", &["Europe/Berlin"]),
-        ("NL", &["Europe/Amsterdam"]),
-        ("FR", &["Europe/Paris"]),
-        ("GB", &["Europe/London"]),
-        ("IE", &["Europe/Dublin"]),
-        ("ES", &["Europe/Madrid", "Atlantic/Canary"]),
-        ("IT", &["Europe/Rome"]),
-        ("PL", &["Europe/Warsaw"]),
-        ("SE", &["Europe/Stockholm"]),
-        ("CH", &["Europe/Zurich"]),
-        ("AT", &["Europe/Vienna"]),
-        ("BE", &["Europe/Brussels"]),
-        (
-            "PT",
-            &["Europe/Lisbon", "Atlantic/Azores", "Atlantic/Madeira"],
-        ),
-        ("JP", &["Asia/Tokyo"]),
-        ("IN", &["Asia/Kolkata", "Asia/Calcutta"]),
-        ("BD", &["Asia/Dhaka"]),
-        ("SG", &["Asia/Singapore"]),
-        ("AE", &["Asia/Dubai"]),
-        ("TR", &["Europe/Istanbul"]),
-        ("KR", &["Asia/Seoul"]),
-        (
-            "US",
-            &[
-                "America/New_York",
-                "America/Chicago",
-                "America/Denver",
-                "America/Phoenix",
-                "America/Los_Angeles",
-                "America/Anchorage",
-                "Pacific/Honolulu",
-                "America/Detroit",
-                "America/Indiana/Indianapolis",
-                "America/Boise",
-            ],
-        ),
-        (
-            "CA",
-            &[
-                "America/Toronto",
-                "America/Vancouver",
-                "America/Edmonton",
-                "America/Winnipeg",
-                "America/Halifax",
-                "America/St_Johns",
-                "America/Regina",
-                "America/Montreal",
-            ],
-        ),
-        (
-            "AU",
-            &[
-                "Australia/Sydney",
-                "Australia/Melbourne",
-                "Australia/Brisbane",
-                "Australia/Perth",
-                "Australia/Adelaide",
-                "Australia/Hobart",
-                "Australia/Darwin",
-            ],
-        ),
-        (
-            "BR",
-            &[
-                "America/Sao_Paulo",
-                "America/Manaus",
-                "America/Fortaleza",
-                "America/Recife",
-                "America/Bahia",
-                "America/Belem",
-            ],
-        ),
-        (
-            "MX",
-            &[
-                "America/Mexico_City",
-                "America/Monterrey",
-                "America/Tijuana",
-                "America/Cancun",
-                "America/Merida",
-                "America/Chihuahua",
-            ],
-        ),
-    ];
-    T.iter()
-        .find(|(c, _)| c.eq_ignore_ascii_case(country))
-        .map(|(_, z)| *z)
+/// IANA zones that are plausible for an exit country (the Geo Auto-Match table, so a
+/// matched persona always passes C018). Unknown country -> cannot verify.
+pub fn timezones_for(country: &str) -> Option<Vec<&'static str>> {
+    crate::geo::timezones_for(country)
 }
 
 /// Run every rule against a persona and the installed engine version.

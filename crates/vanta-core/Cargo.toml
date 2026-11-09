@@ -17,6 +17,7 @@ vanta-proxy.workspace = true
 vanta-log.workspace = true
 vanta-launcher.workspace = true
 vanta-health.workspace = true
+vanta-geo.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

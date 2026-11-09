@@ -88,6 +88,8 @@ pub struct AppInfo {
     engine_found: bool,
     /// SHA256SUMS check of an engine shipped with the installer.
     engine_check: EngineCheck,
+    /// The offline GeoIP database (Geo Auto-Match).
+    geoip: GeoDbStatus,
     data_dir: String,
     log_integrity: Option<LogIntegrity>,
     mock: bool,
@@ -103,6 +105,7 @@ pub fn app_info(app: AppHandle, s: State<'_, Shell>) -> AppInfo {
         engine_path: s.engine_path.display().to_string(),
         engine_found: s.engine_path.is_file(),
         engine_check: s.app.engine_check(),
+        geoip: s.app.geo_db_status(),
         data_dir: s.data_dir.display().to_string(),
         log_integrity: held(&s.log_integrity).clone(),
         mock: false,
@@ -321,6 +324,25 @@ pub async fn inspect_proxy(
         app.inspect_proxy(&proxy_id, speed).await
     })
     .await
+}
+
+// ---- Geo Auto-Match ------------------------------------------------------------------
+
+/// What Geo Auto-Match would change for `ids` (exit IP measured through each proxy, then
+/// the offline database). Nothing is stored.
+#[tauri::command]
+pub async fn geo_preview(s: State<'_, Shell>, ids: Vec<ProfileId>) -> R<Vec<GeoPlan>> {
+    drive(s.app.clone(), move |app| async move {
+        app.geo_preview(&ids).await
+    })
+    .await
+}
+
+/// Apply the previewed matches the user confirmed.
+#[tauri::command]
+pub async fn geo_apply(s: State<'_, Shell>, items: Vec<GeoApply>) -> R<Vec<GeoApplyResult>> {
+    let app = s.app.clone();
+    blocking(move || app.geo_apply(&items)).await
 }
 
 // ---- launch & health ---------------------------------------------------------------
