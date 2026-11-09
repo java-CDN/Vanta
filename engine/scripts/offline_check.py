@@ -25,6 +25,7 @@ from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parent.parent
 GITILES = 'https://chromium.googlesource.com/chromium/src/+/refs/tags/{ver}/{path}?format=TEXT'
+MIRROR = 'https://raw.githubusercontent.com/chromium/chromium/{ver}/{path}'
 
 
 def parse_series(series: Path):
@@ -55,12 +56,21 @@ def split_patch(text: str):
 
 
 def fetch(ver: str, path: str, dest: Path) -> bool:
-    url = GITILES.format(ver=ver, path=path)
-    try:
-        with urllib.request.urlopen(url, timeout=60) as r:
-            data = base64.b64decode(r.read())
-    except Exception as exc:  # 404 for files that are new
-        print(f'  fetch {path}: {exc}', file=sys.stderr)
+    # Gitiles answers 503 to urllib's default User-Agent at times; the GitHub
+    # mirror (same tag, raw bytes) is the fallback.
+    sources = ((GITILES.format(ver=ver, path=path), True),
+               (MIRROR.format(ver=ver, path=path), False))
+    data = None
+    for url, b64 in sources:
+        req = urllib.request.Request(url, headers={'User-Agent': 'curl/8.5.0'})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                raw = r.read()
+            data = base64.b64decode(raw) if b64 else raw
+            break
+        except Exception as exc:  # 404 for files that are new
+            print(f'  fetch {path}: {exc}', file=sys.stderr)
+    if data is None:
         return False
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
@@ -97,17 +107,20 @@ def main():
         parse_series(a.ucw / 'patches' / 'series')
     vanta = parse_series(ENGINE / 'patches' / 'series')
 
-    touched = set()
+    # target -> True if the first Vanta patch touching it creates it. A later
+    # patch may edit a file an earlier Vanta patch created (0003 edits 0002's
+    # chrome/browser/vanta/*); such files are not upstream, so not fetched.
+    touched = {}
     for p in vanta:
         for target, src, _ in split_patch(p.read_text(encoding='utf-8')):
-            touched.add((target, src == '/dev/null'))
+            touched.setdefault(target, src == '/dev/null')
     print(f'Chromium {ver}; Vanta patches touch {len(touched)} files')
-    for target, is_new in sorted(touched):
+    for target, is_new in sorted(touched.items()):
         if not is_new and not fetch(ver, target, tree / target):
             print(f'missing upstream file {target}')
             return 1
 
-    names = {t for t, _ in touched}
+    names = set(touched)
     print('Upstream (ungoogled + windows) hunks on those files:')
     for p in upstream:
         for target, _, chunk in split_patch(p.read_text(encoding='utf-8')):
