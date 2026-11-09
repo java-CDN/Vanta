@@ -736,6 +736,24 @@ async fn happy_path_launch_relay_status_and_log() {
     assert_eq!(payload["vanta_launch"]["relay_port"], info.relay_port);
     assert_eq!(payload["vanta_launch"]["profile_id"], id.to_string());
     assert_eq!(payload["engine"]["build"], 8078);
+    // Engine patch 0003 (persona plumbing) contract: seeds are decimal strings (the
+    // engine's JSON reader would round u64 numbers), every surface seed is present, and
+    // Accept-Language comes precomputed.
+    for k in [
+        "canvas_seed",
+        "audio_seed",
+        "clientrects_seed",
+        "webgl_seed",
+        "font_seed",
+    ] {
+        let s = payload[k]
+            .as_str()
+            .unwrap_or_else(|| panic!("{k} is a string"));
+        assert!(s.parse::<u64>().unwrap() != 0, "{k}");
+    }
+    assert!(payload["accept_language"]
+        .as_str()
+        .is_some_and(|a| a.starts_with(payload["languages"][0].as_str().unwrap())));
     assert!(!contains(file.to_string().as_bytes(), PASSWORD));
 
     // The engine's own connection goes through, with the vault-held password upstream.

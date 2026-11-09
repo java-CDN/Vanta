@@ -68,11 +68,60 @@ pub struct Persona {
     pub webgl_image: SurfaceMode,
     pub audio: SurfaceMode,
     /// Per-surface noise seeds derived from `seed`, so the engine never invents randomness.
+    /// Serialized as decimal strings: the engine's JSON reader (Chromium base::JSONReader)
+    /// keeps integers above 2^31 only as doubles, which would lose bits of a u64.
+    #[serde(with = "seed_str")]
     pub canvas_seed: u64,
+    #[serde(with = "seed_str")]
     pub audio_seed: u64,
+    #[serde(with = "seed_str")]
     pub clientrects_seed: u64,
     /// Always "disable_non_proxied_udp" (C024).
     pub webrtc_policy: String,
+    /// WebGL readPixels/toDataURL noise seed (engine patch group G4). Personas stored
+    /// before this field existed read 0 and get it from `bind_engine`.
+    #[serde(default, with = "seed_str")]
+    pub webgl_seed: u64,
+    /// Font enumeration / text-metrics seed (engine patch group G6). Same migration.
+    #[serde(default, with = "seed_str")]
+    pub font_seed: u64,
+}
+
+/// u64 seeds as decimal strings in JSON; numbers are still accepted on read, so personas
+/// stored before the change keep loading.
+mod seed_str {
+    use serde::de::{self, Visitor};
+    use serde::{Deserializer, Serializer};
+    use std::fmt;
+
+    pub fn serialize<S: Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&v.to_string())
+    }
+
+    struct SeedVisitor;
+
+    impl Visitor<'_> for SeedVisitor {
+        type Value = u64;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a u64 seed as a decimal string or a number")
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u64, E> {
+            Ok(v)
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u64, E> {
+            u64::try_from(v).map_err(|_| E::custom("negative seed"))
+        }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u64, E> {
+            if v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(E::custom("seed must be decimal digits"));
+            }
+            v.parse().map_err(E::custom)
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        d.deserialize_any(SeedVisitor)
+    }
 }
 
 pub const BRAND: &str = "Google Chrome";
@@ -135,6 +184,8 @@ impl Persona {
             audio_seed: sub_seed(seed, "audio"),
             clientrects_seed: sub_seed(seed, "clientrects"),
             webrtc_policy: "disable_non_proxied_udp".into(),
+            webgl_seed: sub_seed(seed, "webgl"),
+            font_seed: sub_seed(seed, "font"),
         })
     }
 
@@ -198,6 +249,13 @@ impl Persona {
         self.user_agent = ua::user_agent(self.os, &engine);
         self.ua_ch.brands = ua::brands(&engine, &self.brand);
         self.ua_ch.full_version_list = ua::full_version_list(&engine, &self.brand);
+        // Personas stored before webgl_seed / font_seed existed read 0 (serde default).
+        if self.webgl_seed == 0 {
+            self.webgl_seed = sub_seed(self.seed, "webgl");
+        }
+        if self.font_seed == 0 {
+            self.font_seed = sub_seed(self.seed, "font");
+        }
     }
 
     pub fn sec_ch_ua(&self) -> String {
@@ -248,6 +306,71 @@ mod tests {
         let p = Persona::from_device(&db[0], V, 7, "en-US").unwrap();
         assert_ne!(p.canvas_seed, p.audio_seed);
         assert!(p.canvas_seed != 0 && p.audio_seed != 0 && p.clientrects_seed != 0);
+        assert!(p.webgl_seed != 0 && p.font_seed != 0);
+        let all = [
+            p.canvas_seed,
+            p.audio_seed,
+            p.clientrects_seed,
+            p.webgl_seed,
+            p.font_seed,
+        ];
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn seeds_serialize_as_decimal_strings() {
+        let db = builtin();
+        let mut p = Persona::from_device(&db[0], V, 7, "en-US").unwrap();
+        p.canvas_seed = u64::MAX;
+        let v: serde_json::Value = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["canvas_seed"], "18446744073709551615");
+        for k in [
+            "canvas_seed",
+            "audio_seed",
+            "clientrects_seed",
+            "webgl_seed",
+            "font_seed",
+        ] {
+            assert!(v[k].is_string(), "{k}");
+        }
+        let back: Persona = serde_json::from_value(v).unwrap();
+        assert_eq!(back, p);
+    }
+
+    #[test]
+    fn stored_persona_with_numeric_seeds_and_no_new_seeds_still_loads() {
+        let db = builtin();
+        let p = Persona::from_device(&db[0], V, 7, "en-US").unwrap();
+        let mut v: serde_json::Value = serde_json::to_value(&p).unwrap();
+        let o = v.as_object_mut().unwrap();
+        o.insert("canvas_seed".into(), serde_json::json!(p.canvas_seed));
+        o.insert("audio_seed".into(), serde_json::json!(p.audio_seed));
+        o.insert(
+            "clientrects_seed".into(),
+            serde_json::json!(p.clientrects_seed),
+        );
+        o.remove("webgl_seed");
+        o.remove("font_seed");
+        let mut old: Persona = serde_json::from_value(v).unwrap();
+        assert_eq!(old.canvas_seed, p.canvas_seed);
+        assert_eq!((old.webgl_seed, old.font_seed), (0, 0));
+        old.bind_engine(V);
+        assert_eq!(old, p);
+    }
+
+    #[test]
+    fn malformed_seed_strings_rejected() {
+        let db = builtin();
+        let p = Persona::from_device(&db[0], V, 7, "en-US").unwrap();
+        for bad in ["", "-1", "+1", "0x10", "1e3", "18446744073709551616"] {
+            let mut v: serde_json::Value = serde_json::to_value(&p).unwrap();
+            v["canvas_seed"] = serde_json::json!(bad);
+            assert!(serde_json::from_value::<Persona>(v).is_err(), "{bad:?}");
+        }
     }
 
     #[test]
