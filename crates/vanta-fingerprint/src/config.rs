@@ -26,11 +26,15 @@ pub struct LaunchBinding {
 
 /// The signed payload of a launch: the persona's own fields at the top level (the engine
 /// patch 0002 reads `engine.{major,minor,build,patch}` from the top-level object) plus
-/// `vanta_launch`.
+/// `accept_language` and `vanta_launch`. Engine patch 0003 (`components/vanta/persona.cc`)
+/// parses the persona fields; `docs/persona-interface.md` lists them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LaunchPayload {
     #[serde(flatten)]
     pub persona: Persona,
+    /// `Persona::accept_language()`, computed here so the engine never re-derives the
+    /// q-values (one source of truth for the header).
+    pub accept_language: String,
     pub vanta_launch: LaunchBinding,
 }
 
@@ -39,6 +43,7 @@ pub struct LaunchPayload {
 pub fn sign_launch(p: &Persona, binding: &LaunchBinding, key: &SigningKey) -> SignedConfig {
     let payload = serde_json::to_string(&LaunchPayload {
         persona: p.clone(),
+        accept_language: p.accept_language(),
         vanta_launch: binding.clone(),
     })
     .expect("launch payload serializes");
@@ -186,6 +191,8 @@ mod tests {
         );
         let back: LaunchPayload = serde_json::from_str(&cfg.payload).unwrap();
         assert_eq!(back.vanta_launch, b);
+        assert_eq!(back.persona, persona());
+        assert_eq!(back.accept_language, persona().accept_language());
         let file: serde_json::Value = serde_json::from_str(&cfg.to_file_json()).unwrap();
         assert!(file["payload"].is_string() && file["signature"].is_string());
         assert_eq!(
@@ -207,5 +214,128 @@ mod tests {
         let mut p = persona();
         p.device_memory = 16.0;
         assert!(preflight(&p, V).unwrap_err().to_string().contains("C015"));
+    }
+
+    /// The fields engine patch 0003 (`components/vanta/persona.cc`, `PersonaFromDict`)
+    /// requires, with their JSON types. Changing one of these is an engine interface
+    /// change: update the patch and docs/persona-interface.md together.
+    #[test]
+    fn launch_payload_matches_engine_persona_contract() {
+        use serde_json::Value;
+        let k = new_signing_key();
+        let b = LaunchBinding {
+            profile_id: "p".into(),
+            relay_port: 40123,
+            issued_ms: 1_762_600_000_000,
+        };
+        let mut p = persona();
+        p.apply_geo(
+            crate::persona::Geo {
+                country: "DE".into(),
+                timezone: "Europe/Berlin".into(),
+                latitude: 52.52,
+                longitude: 13.405,
+                accuracy_m: 5000,
+            },
+            None,
+        );
+        let cfg = sign_launch(&p, &b, &k);
+        let v: Value = serde_json::from_str(&cfg.payload).unwrap();
+        let is_int = |x: &Value| {
+            x.as_i64()
+                .is_some_and(|n| (0..=i32::MAX as i64).contains(&n))
+        };
+        let is_num = |x: &Value| x.is_number();
+        let is_str = |x: &Value| x.is_string();
+        let is_bool = |x: &Value| x.is_boolean();
+        let is_str_list = |x: &Value| {
+            x.as_array()
+                .is_some_and(|a| a.iter().all(|e| e.is_string()))
+        };
+        let is_pair_list = |x: &Value| {
+            x.as_array().is_some_and(|a| {
+                a.iter().all(|e| {
+                    e.as_array()
+                        .is_some_and(|p| p.len() == 2 && p.iter().all(|s| s.is_string()))
+                })
+            })
+        };
+        let is_seed = |x: &Value| {
+            x.as_str()
+                .is_some_and(|s| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()))
+        };
+        type Check<'a> = (&'a str, &'a dyn Fn(&Value) -> bool);
+        let top: Vec<Check> = vec![
+            ("schema", &is_int),
+            ("os", &is_str),
+            ("user_agent", &is_str),
+            ("brand", &is_str),
+            ("platform", &is_str),
+            ("hardware_concurrency", &is_int),
+            ("device_memory", &is_num),
+            ("max_touch_points", &is_int),
+            ("device_pixel_ratio", &is_num),
+            ("fonts", &is_str_list),
+            ("locale", &is_str),
+            ("languages", &is_str_list),
+            ("accept_language", &is_str),
+            ("canvas", &is_str),
+            ("webgl_image", &is_str),
+            ("audio", &is_str),
+            ("canvas_seed", &is_seed),
+            ("audio_seed", &is_seed),
+            ("clientrects_seed", &is_seed),
+            ("webgl_seed", &is_seed),
+            ("font_seed", &is_seed),
+            ("webrtc_policy", &is_str),
+        ];
+        for (key, ok) in &top {
+            assert!(ok(&v[*key]), "top-level {key}: {}", v[*key]);
+        }
+        for (key, ok) in [
+            ("brands", &is_pair_list as &dyn Fn(&Value) -> bool),
+            ("full_version_list", &is_pair_list),
+            ("platform", &is_str),
+            ("platform_version", &is_str),
+            ("architecture", &is_str),
+            ("bitness", &is_str),
+            ("model", &is_str),
+            ("mobile", &is_bool),
+            ("wow64", &is_bool),
+            ("form_factors", &is_str_list),
+        ] {
+            assert!(ok(&v["ua_ch"][key]), "ua_ch.{key}");
+        }
+        for key in [
+            "width",
+            "height",
+            "avail_width",
+            "avail_height",
+            "color_depth",
+        ] {
+            assert!(is_int(&v["screen"][key]), "screen.{key}");
+        }
+        for key in ["vendor", "renderer", "webgpu_vendor", "webgpu_arch"] {
+            assert!(is_str(&v["gpu"][key]), "gpu.{key}");
+        }
+        for key in ["audioinput", "audiooutput", "videoinput"] {
+            assert!(is_int(&v["media_devices"][key]), "media_devices.{key}");
+        }
+        for (key, ok) in [
+            ("country", &is_str as &dyn Fn(&Value) -> bool),
+            ("timezone", &is_str),
+            ("latitude", &is_num),
+            ("longitude", &is_num),
+            ("accuracy_m", &is_int),
+        ] {
+            assert!(ok(&v["geo"][key]), "geo.{key}");
+        }
+        assert!(matches!(v["os"].as_str(), Some("windows10" | "windows11")));
+        assert_eq!(v["webrtc_policy"], "disable_non_proxied_udp");
+        assert_eq!(v["accept_language"], "en-US,en;q=0.9");
+        // Without a location, geo is null (the engine then reports no timezone).
+        let cfg = sign_launch(&persona(), &b, &k);
+        let v: Value = serde_json::from_str(&cfg.payload).unwrap();
+        assert!(v["geo"].is_null());
     }
 }
