@@ -4,3 +4,7 @@ vanta/0003-persona-plumbing.patch
 vanta/0004-webgl.patch
 vanta/0005-canvas-noise.patch
 vanta/0006-audio-noise.patch
+vanta/0007-navigator-uach.patch
+vanta/0008-screen.patch
+vanta/0009-timezone.patch
+vanta/0010-fonts-webrtc.patch
