@@ -1,0 +1,253 @@
+# Vanta G6/G8 (0010): font list + WebRTC.
+# Fonts matched by name (CSS, local(), document.fonts.check, canvas) and the
+# Local Font Access list are limited to the persona's Windows font list plus a
+# small Windows baseline (components/vanta/font_allowlist.h, shared by Blink via
+# the platform/vanta adapter and by content). Fallback is not filtered.
+# WebRTC: with a persona the IP handling policy is forced to
+# disable_non_proxied_udp (no host/mDNS/local candidates, proxy only) and
+# per-URL overrides / local-IP allow-lists are cleared. No persona: unchanged.
+
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -214,6 +214,17 @@
+                  &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
+   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
+       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));
++
++  // Vanta (0010): with a persona, WebRTC may only use the proxy: no
++  // non-proxied UDP, no host/local candidates. Prefs, extensions
++  // (chrome.privacy) and policies (per-URL handling, local-IP allow-list)
++  // cannot loosen it.
++  if (vanta::GetPersona()) {
++    prefs->webrtc_ip_handling_policy =
++        blink::mojom::WebRtcIpHandlingPolicy::kDisableNonProxiedUdp;
++    prefs->webrtc_ip_handling_urls.clear();
++    prefs->webrtc_local_ips_allowed_urls.clear();
++  }
+   prefs->accept_languages = GetLanguageListForProfile(
+       profile, pref_service->GetString(language::prefs::kAcceptLanguages));
+ #if !BUILDFLAG(IS_MAC)
+--- a/components/vanta/BUILD.gn
++++ b/components/vanta/BUILD.gn
+@@ -8,6 +8,7 @@
+ # it. See docs/persona-interface.md in the Vanta repository.
+ component("vanta") {
+   sources = [
++    "font_allowlist.h",
+     "persona.cc",
+     "persona.h",
+   ]
+--- /dev/null
++++ b/components/vanta/font_allowlist.h
+@@ -0,0 +1,62 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_VANTA_FONT_ALLOWLIST_H_
++#define COMPONENTS_VANTA_FONT_ALLOWLIST_H_
++
++#include <optional>
++#include <string>
++#include <string_view>
++
++#include "base/containers/flat_set.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_util.h"
++#include "components/vanta/persona.h"
++
++namespace vanta {
++
++// Vanta (patch 0010): the font families pages may match by name.
++//
++// With a persona, a family is visible to pages only if it is in the persona's
++// Windows font list or in kBaselineFonts. kBaselineFonts are fonts every
++// Windows 10/11 install ships that Chromium itself names as defaults (generic
++// families, system-ui, emoji), so blocking them would break rendering and be
++// a tell of its own. System font fallback (glyphs a matched font lacks) is not
++// filtered: text in any script still renders.
++//
++// Header-only so Blink (renderer) and content (Local Font Access, browser)
++// share one definition without a new GN target.
++inline constexpr std::string_view kBaselineFonts[] = {
++    "Arial",          "Comic Sans MS",   "Consolas",
++    "Courier New",    "Impact",          "Segoe UI",
++    "Segoe UI Emoji", "Segoe UI Symbol", "Times New Roman",
++};
++
++// True when no persona (or no font list) is set, or `family` is allowed.
++// Case-insensitive (ASCII); thread-safe; the set is built once per process.
++inline bool IsFontFamilyAllowed(std::string_view family) {
++  static const base::NoDestructor<std::optional<base::flat_set<std::string>>>
++      allowed([]() -> std::optional<base::flat_set<std::string>> {
++        const Persona* persona = GetPersona();
++        if (!persona || persona->fonts.empty()) {
++          return std::nullopt;
++        }
++        base::flat_set<std::string> set;
++        for (const auto& name : persona->fonts) {
++          set.insert(base::ToLowerASCII(name));
++        }
++        for (std::string_view name : kBaselineFonts) {
++          set.insert(base::ToLowerASCII(name));
++        }
++        return set;
++      }());
++  if (!allowed->has_value()) {
++    return true;
++  }
++  return (*allowed)->contains(base::ToLowerASCII(family));
++}
++
++}  // namespace vanta
++
++#endif  // COMPONENTS_VANTA_FONT_ALLOWLIST_H_
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -192,6 +192,7 @@
+     "//components/ukm/debug:util",
+     "//components/url_formatter",
+     "//components/url_matcher",
++    "//components/vanta",
+     "//components/variations",
+     "//components/variations/net",
+     "//components/version_info",
+--- a/content/browser/DEPS
++++ b/content/browser/DEPS
+@@ -41,6 +41,7 @@
+   "+components/ukm",
+   "+components/unexportable_keys/features.h",
+   "+components/url_formatter",
++  "+components/vanta/font_allowlist.h",
+   "+components/viz",
+   "+components/web_package",
+   "+components/webauthn/json",
+--- a/content/browser/font_access/font_enumeration_cache.cc
++++ b/content/browser/font_access/font_enumeration_cache.cc
+@@ -19,6 +19,7 @@
+ #include "base/task/thread_pool.h"
+ #include "base/threading/sequence_bound.h"
+ #include "base/types/pass_key.h"
++#include "components/vanta/font_allowlist.h"
+ #include "content/browser/font_access/font_enumeration_data_source.h"
+ #include "third_party/blink/public/common/font_access/font_enumeration_table.pb.h"
+ #include "third_party/blink/public/mojom/font_access/font_access.mojom.h"
+@@ -84,6 +85,16 @@
+     return;
+   }
+ 
++  // Vanta (0010): window.queryLocalFonts() lists only the persona's fonts,
++  // the same set Blink lets pages match by name (font_cache.cc).
++  auto* fonts = table.mutable_fonts();
++  fonts->erase(
++      std::remove_if(fonts->begin(), fonts->end(),
++                     [](const blink::FontEnumerationTable_FontData& font) {
++                       return !vanta::IsFontFamilyAllowed(font.family());
++                     }),
++      fonts->end());
++
+   // Postscript names, according to spec, are expected to be encoded in a subset
+   // of ASCII. See:
+   // https://docs.microsoft.com/en-us/typography/opentype/spec/name This is why
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -67,6 +67,7 @@
+ #include "third_party/blink/renderer/platform/json/json_parser.h"
+ #include "third_party/blink/renderer/platform/json/json_values.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
+ #include "third_party/blink/renderer/platform/wtf/text/code_point_iterator.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+@@ -174,6 +175,20 @@
+   LayoutLocale::AcceptLanguagesChanged(accept_languages);
+ }
+ 
++// Vanta (0010): a family matched by name (CSS font-family, local(),
++// document.fonts.check, canvas) is visible only if its real family name is
++// in the persona's Windows font list. Fallback and last-resort lookups go
++// to GetFontPlatformData directly and are not filtered.
++static bool VantaFontAllowed(const FontPlatformData* platform_data) {
++  if (!platform_data || !platform_data->Typeface()) {
++    return true;
++  }
++  SkString family;
++  platform_data->Typeface()->getFamilyName(&family);
++  return vanta_surfaces::IsFontFamilyAllowed(
++      std::string_view(family.c_str(), family.size()));
++}
++
+ const SimpleFontData* FontCache::GetFontData(
+     const FontDescription& font_description,
+     const AtomicString& family,
+@@ -183,6 +198,9 @@
+           FontFaceCreationParams(
+               AdjustFamilyNameToAvoidUnsupportedFonts(family)),
+           altername_font_name)) {
++    if (!VantaFontAllowed(platform_data)) {
++      return nullptr;
++    }
+     return FontDataFromFontPlatformData(
+         platform_data, font_description.SubpixelAscentDescent());
+   }
+@@ -199,10 +217,11 @@
+ bool FontCache::IsPlatformFamilyMatchAvailable(
+     const FontDescription& font_description,
+     const AtomicString& family) {
+-  return GetFontPlatformData(
++  const FontPlatformData* platform_data = GetFontPlatformData(
+       font_description,
+       FontFaceCreationParams(AdjustFamilyNameToAvoidUnsupportedFonts(family)),
+       AlternateFontName::kNoAlternate);
++  return platform_data && VantaFontAllowed(platform_data);
+ }
+ 
+ bool FontCache::IsPlatformFontUniqueNameMatchAvailable(
+--- a/third_party/blink/renderer/platform/vanta/DEPS
++++ b/third_party/blink/renderer/platform/vanta/DEPS
+@@ -1,3 +1,4 @@
+ include_rules = [
+   "+components/vanta/persona.h",
++  "+components/vanta/font_allowlist.h",
+ ]
+--- a/third_party/blink/renderer/platform/vanta/vanta_persona.cc
++++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
+@@ -8,6 +8,7 @@
+ #include <string_view>
+ 
+ #include "base/no_destructor.h"
++#include "components/vanta/font_allowlist.h"
+ #include "components/vanta/persona.h"
+ 
+ namespace blink::vanta_surfaces {
+@@ -48,4 +49,8 @@
+   return surfaces->has_value() ? &surfaces->value() : nullptr;
+ }
+ 
++bool IsFontFamilyAllowed(std::string_view family) {
++  return ::vanta::IsFontFamilyAllowed(family);
++}
++
+ }  // namespace blink::vanta_surfaces
+--- a/third_party/blink/renderer/platform/vanta/vanta_persona.h
++++ b/third_party/blink/renderer/platform/vanta/vanta_persona.h
+@@ -8,6 +8,7 @@
+ #include <stdint.h>
+ 
+ #include <string>
++#include <string_view>
+ 
+ #include "third_party/blink/renderer/platform/platform_export.h"
+ 
+@@ -36,6 +37,11 @@
+ // Safe to call from any thread.
+ PLATFORM_EXPORT const PersonaSurfaces* GetPersonaSurfaces();
+ 
++// Fonts (patch 0010): true when `family` may be matched by name, i.e.
++// there is no persona or the family is in its Windows font list
++// (components/vanta/font_allowlist.h). Safe to call from any thread.
++PLATFORM_EXPORT bool IsFontFamilyAllowed(std::string_view family);
++
+ // SplitMix64 finalizer: the one mixing function every Vanta noise uses, so
+ // equal inputs give equal noise in every process and on every thread.
+ inline uint64_t Mix64(uint64_t x) {

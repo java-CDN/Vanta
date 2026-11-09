@@ -1,2 +1,9 @@
 vanta/0001-vanta-branding-and-exe-name.patch
 vanta/0002-vanta-signed-launch-config.patch
+# vanta/0003-persona-plumbing.patch (team/engine-persona) and
+# vanta/0004-0006 (team/engine-graphics) go above this line; 0007-0010 build
+# on both (components/vanta/persona.h, platform/vanta/vanta_persona.{h,cc}).
+vanta/0007-navigator-uach.patch
+vanta/0008-screen.patch
+vanta/0009-timezone.patch
+vanta/0010-fonts-webrtc.patch

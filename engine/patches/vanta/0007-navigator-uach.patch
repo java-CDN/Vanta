@@ -1,0 +1,221 @@
+# Vanta G2 (0007): navigator + UA-CH from the persona.
+# navigator.hardwareConcurrency (Blink adapter, every realm incl. workers);
+# navigator.deviceMemory + Sec-CH-Device-Memory (blink/common, snapped to a
+# power of two in [2, 32] like Chrome 156 desktop); UA-CH platformVersion
+# (navigator.userAgentData + Sec-CH-UA-Platform-Version, Win10 "10.0.0" vs
+# Win11 >= "13.0.0" as the persona says); navigator.languages and
+# Accept-Language from the same persona list. The User-Agent string and UA-CH
+# brands stay the engine's own reduced Chrome 156 Windows values (R14);
+# navigator.platform is already "Win32" on Windows. No persona: unchanged.
+
+--- a/chrome/browser/net/BUILD.gn
++++ b/chrome/browser/net/BUILD.gn
+@@ -211,6 +211,7 @@
+     "//components/safe_browsing/core/common:safe_browsing_prefs",
+     "//components/signin/public/base:signin_buildflags",
+     "//components/strings:components_strings",
++    "//components/vanta",
+     "//components/variations",
+     "//components/variations/net",
+     "//components/webui/flags",
+--- a/chrome/browser/net/profile_network_context_service.cc
++++ b/chrome/browser/net/profile_network_context_service.cc
+@@ -74,6 +74,7 @@
+ #include "components/prefs/pref_registry_simple.h"
+ #include "components/prefs/pref_service.h"
+ #include "components/privacy_sandbox/privacy_sandbox_prefs.h"
++#include "components/vanta/persona.h"
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_thread.h"
+ #include "content/public/browser/network_service_instance.h"
+@@ -709,6 +710,15 @@
+ }
+ 
+ std::string ProfileNetworkContextService::ComputeAcceptLanguage() const {
++  // Vanta (0007): the persona's languages, the same list
++  // renderer_preferences_util.cc gives the renderer for
++  // navigator.languages, so Accept-Language always matches it.
++  if (const vanta::Persona* persona = vanta::GetPersona();
++      persona && !persona->languages.empty()) {
++    return ComputeAcceptLanguageFromPref(
++        content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
++            base::JoinString(persona->languages, ",")));
++  }
+   return ComputeAcceptLanguageFromPref(
+       content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
+           profile_->IsOffTheRecord() ? language::GetIncognitoLanguageList(
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -28,6 +28,7 @@
+ #include "components/prefs/pref_service.h"
+ #include "components/universal_optout/features.h"
+ #include "components/universal_optout/prefs.h"
++#include "components/vanta/persona.h"
+ #include "content/public/browser/renderer_preferences_util.h"
+ #include "media/media_buildflags.h"
+ #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
+@@ -100,6 +101,15 @@
+ 
+ std::string GetLanguageListForProfile(Profile* profile,
+                                       const std::string& language_list) {
++  // Vanta (0007): with a persona, its language list replaces the
++  // intl.accept_languages pref. renderer_preferences_util.cc
++  // (navigator.languages) and profile_network_context_service.cc
++  // (Accept-Language) both take it from here, so the two always agree.
++  if (const vanta::Persona* persona = vanta::GetPersona();
++      persona && !persona->languages.empty()) {
++    return content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
++        base::JoinString(persona->languages, ","));
++  }
+   return content::ReduceAcceptLanguageUtils::GetLanguagesWithMaxCount(
+       profile->IsOffTheRecord()
+           ? language::GetIncognitoLanguageList(language_list)
+--- a/components/embedder_support/BUILD.gn
++++ b/components/embedder_support/BUILD.gn
+@@ -60,6 +60,7 @@
+     "//build:branding_buildflags",
+     "//components/policy/core/common",
+     "//components/prefs",
++    "//components/vanta",
+     "//components/version_info",
+     "//net",
+     "//third_party/blink/public/common:headers",
+--- a/components/embedder_support/DEPS
++++ b/components/embedder_support/DEPS
+@@ -6,6 +6,7 @@
+   "+components/permissions",
+   "+components/policy/core/common",
+   "+components/prefs",
++  "+components/vanta/persona.h",
+   "+components/version_info",
+   "+content/public/browser",
+   "+content/public/common",
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -30,6 +30,7 @@
+ #include "components/embedder_support/switches.h"
+ #include "components/policy/core/common/policy_pref_names.h"
+ #include "components/prefs/pref_service.h"
++#include "components/vanta/persona.h"
+ #include "components/version_info/version_info.h"
+ #include "net/http/http_util.h"
+ #include "third_party/blink/public/common/features.h"
+@@ -619,6 +620,13 @@
+ #endif
+ 
+ #if BUILDFLAG(IS_WIN)
++  // Vanta (0007): the persona's Windows platformVersion. This one value
++  // feeds both navigator.userAgentData.getHighEntropyValues() and the
++  // Sec-CH-UA-Platform-Version header (GetUserAgentMetadata below).
++  if (const vanta::Persona* persona = vanta::GetPersona();
++      persona && !persona->ua_ch.platform_version.empty()) {
++    return persona->ua_ch.platform_version;
++  }
+   return GetWindowsPlatformVersion();
+ #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_FUCHSIA)
+   return std::string();
+--- a/third_party/blink/common/BUILD.gn
++++ b/third_party/blink/common/BUILD.gn
+@@ -307,6 +307,7 @@
+     "//base",
+     "//build:android_buildflags",
+     "//build:chromecast_buildflags",
++    "//components/vanta",
+     "//media/capture:capture_base",
+     "//media/capture/mojom:video_capture_mojom_support",
+     "//mojo/public/cpp/system",
+--- a/third_party/blink/common/DEPS
++++ b/third_party/blink/common/DEPS
+@@ -34,6 +34,8 @@
+     "+skia/public/mojom/bitmap_skbitmap_mojom_traits.h",
+     "+testing/gmock/include/gmock",
+     "+testing/gtest/include/gtest",
++    # Vanta (0007): navigator.deviceMemory from the persona.
++    "+components/vanta/persona.h",
+     "+third_party/blink/common",
+     "+third_party/blink/public/common",
+     "+third_party/blink/public/mojom",
+--- a/third_party/blink/common/device_memory/approximated_device_memory.cc
++++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
+@@ -8,10 +8,26 @@
+ #include "base/check_op.h"
+ #include "base/feature_list.h"
+ #include "base/system/sys_info.h"
++#include "components/vanta/persona.h"
+ #include "third_party/blink/public/common/features.h"
+ 
+ namespace blink {
+ 
++namespace {
++
++// Vanta (0007): the persona's device memory, snapped to a value Chrome 156
++// itself can report on desktop: a power of two in [2, 32] GB (see the limits
++// in CalculateAndSetApproximatedDeviceMemory below).
++float VantaDeviceMemory(double gb) {
++  float value = 2.0f;
++  while (value < 32.0f && gb >= value * 1.5) {
++    value *= 2.0f;
++  }
++  return value;
++}
++
++}  // namespace
++
+ // static
+ float ApproximatedDeviceMemory::approximated_device_memory_gb_ = 0.0;
+ int64_t ApproximatedDeviceMemory::physical_memory_mb_ = 0;
+@@ -27,6 +43,12 @@
+ 
+ // static
+ float ApproximatedDeviceMemory::GetApproximatedDeviceMemory() {
++  // Vanta (0007): navigator.deviceMemory (renderer) and the
++  // Sec-CH-Device-Memory header (browser) both read this getter.
++  if (const vanta::Persona* persona = vanta::GetPersona();
++      persona && persona->device_memory_gb > 0) {
++    return VantaDeviceMemory(persona->device_memory_gb);
++  }
+   return approximated_device_memory_gb_;
+ }
+ 
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -5,10 +5,17 @@
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
+ #include "base/system/sys_info.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ 
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
++  // Vanta (0007): the persona's logical core count. Every realm (window,
++  // iframe, dedicated/shared/service worker) reads this one function.
++  if (const auto* vanta = vanta_surfaces::GetPersonaSurfaces();
++      vanta && vanta->hardware_concurrency > 0) {
++    return vanta->hardware_concurrency;
++  }
+   return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
+ }
+ 
+--- a/third_party/blink/renderer/platform/vanta/vanta_persona.cc
++++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
+@@ -33,6 +33,8 @@
+   if (persona->audio_mode == ::vanta::SurfaceMode::kNoise) {
+     s.audio_noise_seed = persona->seeds.audio;
+   }
++  s.hardware_concurrency =
++      static_cast<uint32_t>(persona->hardware_concurrency);
+   return s;
+ }
+ 
+--- a/third_party/blink/renderer/platform/vanta/vanta_persona.h
++++ b/third_party/blink/renderer/platform/vanta/vanta_persona.h
+@@ -26,6 +26,8 @@
+   // Noise seeds; 0 unless the surface's mode is Noise.
+   uint64_t canvas_noise_seed = 0;  // patch 0005
+   uint64_t audio_noise_seed = 0;   // patch 0006
++  // navigator.hardwareConcurrency (patch 0007); 0: the real count.
++  uint32_t hardware_concurrency = 0;
+ };
+ 
+ // nullptr when the engine runs without a persona: Chromium behaves unchanged.
