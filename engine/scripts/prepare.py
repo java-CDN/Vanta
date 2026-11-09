@@ -49,11 +49,13 @@ STATE_DIR = '.vanta_state'  # inside src, so CI stage archives carry it
 # upstream include issue there cannot block the Vanta pipeline.
 GN_CHECK_TARGETS = (
     '//chrome/browser/vanta/*',
+    '//components/vanta/*',
     '//chrome:chrome_initial',
 )
 GN_CHECK_ADVISORY = (
     '//chrome:chrome_dll',
     '//chrome/browser:browser',
+    '//chrome/browser:core',  # chrome_content_browser_client.cc (0003)
 )
 
 
@@ -323,7 +325,8 @@ class Ctx:
         series = vanta_series()
         log(f'applying {len(series)} vanta patches')
         self.patches.apply_patches(series, self.src, patch_bin_path=bin_)
-        for f in ('chrome/browser/vanta/launch_config.cc', 'chrome/browser/vanta/BUILD.gn'):
+        for f in ('chrome/browser/vanta/launch_config.cc', 'chrome/browser/vanta/BUILD.gn',
+                  'components/vanta/persona.cc', 'components/vanta/BUILD.gn'):
             if not (self.src / f).exists():
                 raise SystemExit(f'vanta file missing after patching: {f}')
         man = self._load_manifest()

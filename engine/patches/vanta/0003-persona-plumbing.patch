@@ -1,0 +1,1528 @@
+# Vanta 0003: persona plumbing (shared interface for patch groups G2-G8).
+# New component //components/vanta (depends on //base only): vanta::Persona,
+# vanta::GetPersona() (nullptr = no persona, plain Chromium). The browser
+# process builds it from the payload 0002 has just verified (bad persona fields
+# -> exit 86) and hands it to every child (renderer, GPU, utility/network) as
+# --vanta-persona=<base64url of the canonical persona JSON>, appended in
+# ChromeContentBrowserClient::AppendExtraCommandLineSwitches. Children parse it
+# lazily; the browser never reads that switch. Unit tests in
+# components_unittests (VantaPersonaTest.*). Interface: docs/persona-interface.md.
+
+--- /dev/null
++++ b/components/vanta/BUILD.gn
+@@ -0,0 +1,27 @@
++# Copyright 2026 The Vanta Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++# Vanta persona (patch 0003): the verified launch persona as a C++ struct,
++# available in every process (browser, renderer, GPU, utility/network).
++# Depends on //base only, so Blink, content, services and chrome can all use
++# it. See docs/persona-interface.md in the Vanta repository.
++component("vanta") {
++  sources = [
++    "persona.cc",
++    "persona.h",
++  ]
++  defines = [ "IS_VANTA_IMPL" ]
++  deps = [ "//base" ]
++}
++
++source_set("unit_tests") {
++  testonly = true
++  sources = [ "persona_unittest.cc" ]
++  deps = [
++    ":vanta",
++    "//base",
++    "//base/test:test_support",
++    "//testing/gtest",
++  ]
++}
+--- /dev/null
++++ b/components/vanta/DEPS
+@@ -0,0 +1,5 @@
++include_rules = [
++  # The persona must be readable from every process and from Blink, so this
++  # component depends on //base and nothing else.
++  "+base",
++]
+--- /dev/null
++++ b/components/vanta/persona.h
+@@ -0,0 +1,286 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef COMPONENTS_VANTA_PERSONA_H_
++#define COMPONENTS_VANTA_PERSONA_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "base/component_export.h"
++
++namespace base {
++class CommandLine;
++class DictValue;
++}  // namespace base
++
++// The Vanta persona: the fingerprint one profile presents, as signed by the
++// Vanta launcher (vanta-fingerprint `LaunchPayload`) and verified by the
++// browser process (chrome/browser/vanta/launch_config.cc, patch 0002).
++//
++// Every process reads it with vanta::GetPersona(). A null result means the
++// engine was started without --vanta-config and must behave exactly like plain
++// Chromium. The persona never changes during the life of a process.
++//
++// JSON names in the comments are the keys of the signed payload; the full
++// mapping is in docs/persona-interface.md.
++namespace vanta {
++
++// Switch the browser appends to every child process it launches: base64url
++// (RFC 4648 section 5, no padding) of the canonical persona JSON.
++inline constexpr char kPersonaSwitch[] = "vanta-persona";
++
++// Upper bound for the --vanta-persona value. The browser refuses a persona
++// that would exceed it (exit 86) and children reject a longer value. Windows
++// limits a whole command line to 32767 characters.
++inline constexpr size_t kMaxPersonaSwitchValueLength = 16 * 1024;
++
++// The only persona schema this engine understands ("schema").
++inline constexpr int kPersonaSchema = 1;
++
++// The only WebRTC IP handling policy a persona may carry ("webrtc_policy").
++// It is Chromium's own pref value (blink::kWebRTCIPHandlingDisableNonProxiedUdp).
++inline constexpr char kWebRtcPolicyDisableNonProxiedUdp[] =
++    "disable_non_proxied_udp";
++
++// "os": "windows10" | "windows11". Vanta personas are Windows only (R1).
++enum class WindowsRelease {
++  kWindows10,
++  kWindows11,
++};
++
++// "canvas", "webgl_image", "audio": "real" | "noise" | "block".
++enum class SurfaceMode {
++  kReal,   // Values from the host as plain Chromium computes them.
++  kNoise,  // Small, stable per-profile perturbation from the matching seed.
++  kBlock,  // The API reports itself unavailable.
++};
++
++// One entry of "ua_ch.brands" / "ua_ch.full_version_list": ["brand", "ver"].
++struct COMPONENT_EXPORT(VANTA) BrandVersion {
++  std::string brand;
++  std::string version;
++
++  bool operator==(const BrandVersion&) const = default;
++};
++
++// "ua_ch": User-Agent Client Hints, exactly as navigator.userAgentData and
++// the Sec-CH-UA-* headers must report them.
++struct COMPONENT_EXPORT(VANTA) UaClientHints {
++  UaClientHints();
++  UaClientHints(const UaClientHints&);
++  UaClientHints& operator=(const UaClientHints&);
++  UaClientHints(UaClientHints&&);
++  UaClientHints& operator=(UaClientHints&&);
++  ~UaClientHints();
++  bool operator==(const UaClientHints&) const;
++
++  std::vector<BrandVersion> brands;             // "brands" (non-empty)
++  std::vector<BrandVersion> full_version_list;  // "full_version_list"
++  std::string platform;                         // "platform", always "Windows"
++  std::string platform_version;                 // "platform_version", "10.0.0"
++  std::string architecture;                     // "architecture", "x86"
++  std::string bitness;                          // "bitness", "64"
++  std::string model;                            // "model", may be empty
++  bool mobile = false;                          // "mobile", always false
++  bool wow64 = false;                           // "wow64"
++  std::vector<std::string> form_factors;        // "form_factors"
++};
++
++// "screen" plus the top-level "device_pixel_ratio".
++struct COMPONENT_EXPORT(VANTA) Screen {
++  int width = 0;                    // "screen.width" (CSS px)
++  int height = 0;                   // "screen.height"
++  int avail_width = 0;              // "screen.avail_width" (<= width)
++  int avail_height = 0;             // "screen.avail_height" (<= height)
++  int color_depth = 0;              // "screen.color_depth" (= pixelDepth)
++  double device_pixel_ratio = 1.0;  // top-level "device_pixel_ratio"
++
++  bool operator==(const Screen&) const = default;
++};
++
++// "gpu.vendor" / "gpu.renderer": UNMASKED_VENDOR_WEBGL / UNMASKED_RENDERER_WEBGL.
++// The device records carry no other WebGL parameters; limits follow from the
++// renderer string (see docs/persona-interface.md).
++struct COMPONENT_EXPORT(VANTA) WebGl {
++  std::string vendor;    // "gpu.vendor", e.g. "Google Inc. (NVIDIA)"
++  std::string renderer;  // "gpu.renderer", e.g. "ANGLE (NVIDIA, ...)"
++
++  bool operator==(const WebGl&) const = default;
++};
++
++// GPUAdapterInfo for WebGPU.
++struct COMPONENT_EXPORT(VANTA) WebGpu {
++  std::string vendor;        // "gpu.webgpu_vendor", e.g. "nvidia"
++  std::string architecture;  // "gpu.webgpu_arch", e.g. "ampere"
++
++  bool operator==(const WebGpu&) const = default;
++};
++
++// Per-surface noise seeds, all non-zero. Derived by the launcher from the
++// profile seed; the engine never invents randomness. JSON carries them as
++// decimal strings because base::JSONReader would round a u64 number.
++struct COMPONENT_EXPORT(VANTA) Seeds {
++  uint64_t canvas = 0;        // "canvas_seed"
++  uint64_t audio = 0;         // "audio_seed"
++  uint64_t webgl = 0;         // "webgl_seed"
++  uint64_t font = 0;          // "font_seed"
++  uint64_t client_rects = 0;  // "clientrects_seed"
++
++  bool operator==(const Seeds&) const = default;
++};
++
++// "media_devices": how many devices of each kind enumerateDevices() lists.
++struct COMPONENT_EXPORT(VANTA) MediaDeviceCounts {
++  int audio_input = 0;   // "audioinput"
++  int audio_output = 0;  // "audiooutput"
++  int video_input = 0;   // "videoinput"
++
++  bool operator==(const MediaDeviceCounts&) const = default;
++};
++
++// "geo" (null until the launcher knows the exit IP's location). Its
++// "timezone" is Persona::timezone.
++struct COMPONENT_EXPORT(VANTA) Geolocation {
++  std::string country;    // "geo.country", ISO 3166-1 alpha-2
++  double latitude = 0;    // "geo.latitude", [-90, 90]
++  double longitude = 0;   // "geo.longitude", [-180, 180]
++  int accuracy_m = 0;     // "geo.accuracy_m", >= 0
++
++  bool operator==(const Geolocation&) const = default;
++};
++
++struct COMPONENT_EXPORT(VANTA) Persona {
++  Persona();
++  Persona(const Persona&);
++  Persona& operator=(const Persona&);
++  Persona(Persona&&);
++  Persona& operator=(Persona&&);
++  ~Persona();
++  bool operator==(const Persona&) const;
++
++  int schema = kPersonaSchema;                     // "schema"
++  WindowsRelease os = WindowsRelease::kWindows10;  // "os"
++
++  // G2: navigator, User-Agent, UA-CH.
++  std::string user_agent;  // "user_agent" (User-Agent header + navigator)
++  std::string brand;       // "brand", e.g. "Google Chrome"
++  std::string platform;    // "platform" (navigator.platform), always "Win32"
++  UaClientHints ua_ch;     // "ua_ch"
++
++  // G3: hardware and screen.
++  int hardware_concurrency = 0;  // "hardware_concurrency", [1, 1024]
++  double device_memory_gb = 0;   // "device_memory" (GiB, unrounded)
++  int max_touch_points = 0;      // "max_touch_points"
++  Screen screen;                 // "screen" + "device_pixel_ratio"
++
++  // G4/G5: canvas, WebGL, WebGPU, audio.
++  WebGl webgl;                                   // "gpu.vendor/renderer"
++  WebGpu webgpu;                                 // "gpu.webgpu_*"
++  SurfaceMode canvas_mode = SurfaceMode::kReal;  // "canvas"
++  SurfaceMode webgl_image_mode = SurfaceMode::kReal;  // "webgl_image"
++  SurfaceMode audio_mode = SurfaceMode::kReal;   // "audio"
++  Seeds seeds;
++
++  // G6: fonts. The allow-list of font family names the page may see
++  // ("fonts", non-empty).
++  std::vector<std::string> fonts;
++
++  // G7: time zone, locale, languages, geolocation, media devices.
++  // IANA zone ("geo.timezone"), e.g. "Europe/Berlin". Empty while the
++  // persona has no "geo"; G7 decides what that means (see the interface doc).
++  std::string timezone;
++  std::string locale;                   // "locale", e.g. "de-DE"
++  std::vector<std::string> languages;   // "languages" (navigator.languages)
++  std::string accept_language;          // "accept_language" (header value)
++  std::optional<Geolocation> geolocation;  // "geo"
++  MediaDeviceCounts media_devices;      // "media_devices"
++
++  // G8: always kWebRtcPolicyDisableNonProxiedUdp ("webrtc_policy").
++  std::string webrtc_policy;
++};
++
++// The persona of this process, or nullptr when the engine runs without one.
++//
++// Browser process: the persona verified from --vanta-config, set once by
++// InitializeBrowserPersona() during ChromeMainDelegate::BasicStartupComplete,
++// before any other thread or child process exists. The browser never reads
++// --vanta-persona, so the switch cannot bypass the signature there.
++//
++// Child processes (any --type): parsed on first call from --vanta-persona.
++// No switch -> nullptr. A switch that is present but malformed crashes the
++// process (CHECK): it can only come from corruption, and running on with the
++// host's real fingerprint would be a leak.
++//
++// Thread-safe, cheap after the first call, and the pointer stays valid for
++// the life of the process.
++COMPONENT_EXPORT(VANTA) const Persona* GetPersona();
++
++// ---- Browser process only -------------------------------------------------
++
++// Builds the persona from the signed payload that launch_config.cc has just
++// verified, and prepares the --vanta-persona value. Returns false (the caller
++// exits 86) when a field is missing or invalid, or when the encoded persona
++// exceeds kMaxPersonaSwitchValueLength. Call at most once.
++COMPONENT_EXPORT(VANTA)
++bool InitializeBrowserPersona(const base::DictValue& verified_payload);
++
++// Appends --vanta-persona to a child process command line when the browser
++// has a persona; otherwise, or when the switch is already there, does
++// nothing. Called from ChromeContentBrowserClient::AppendExtraCommandLineSwitches,
++// which content runs for renderer, GPU and utility (network service, audio,
++// storage, ...) launches.
++COMPONENT_EXPORT(VANTA) void AppendPersonaSwitch(base::CommandLine* child);
++
++// ---- Parsing and encoding (pure functions; also used by the tests) --------
++
++// The persona fields of a payload object. Unknown keys (engine, seed,
++// device_id, vanta_launch, ...) are ignored. Returns nullptr when any field
++// is missing, has the wrong JSON type or is out of range.
++COMPONENT_EXPORT(VANTA)
++std::unique_ptr<Persona> PersonaFromDict(const base::DictValue& payload);
++
++// Same for a JSON text (RFC 8259). nullptr on any error.
++COMPONENT_EXPORT(VANTA)
++std::unique_ptr<Persona> ParsePersonaJson(std::string_view json);
++
++// Canonical JSON of `persona`: the payload's own key names, keys sorted,
++// only the fields above. PersonaFromDict/ParsePersonaJson read it back to an
++// equal Persona.
++COMPONENT_EXPORT(VANTA) std::string SerializePersona(const Persona& persona);
++
++// base64url (no padding) of SerializePersona(): the --vanta-persona value.
++COMPONENT_EXPORT(VANTA)
++std::string EncodePersonaSwitchValue(const Persona& persona);
++
++// Inverse of EncodePersonaSwitchValue(). nullptr when the value is longer
++// than kMaxPersonaSwitchValueLength, not unpadded base64url, or not a valid
++// persona.
++COMPONENT_EXPORT(VANTA)
++std::unique_ptr<Persona> DecodePersonaSwitchValue(std::string_view value);
++
++// What a process command line says about the persona. GetPersona() uses it
++// for child processes.
++enum class PersonaSwitchState {
++  kAbsent,     // Browser process (no --type), or no --vanta-persona.
++  kValid,      // Child process with a valid --vanta-persona.
++  kMalformed,  // Child process with an unusable --vanta-persona.
++};
++COMPONENT_EXPORT(VANTA)
++PersonaSwitchState ReadPersonaSwitch(const base::CommandLine& command_line,
++                                     std::unique_ptr<Persona>* persona);
++
++// Testing only: forgets the browser persona so a test can initialize again.
++// Has no effect on a child process persona already parsed by GetPersona().
++COMPONENT_EXPORT(VANTA) void ResetBrowserPersonaForTesting();
++
++}  // namespace vanta
++
++#endif  // COMPONENTS_VANTA_PERSONA_H_
+--- /dev/null
++++ b/components/vanta/persona.cc
+@@ -0,0 +1,608 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/vanta/persona.h"
++
++#include <atomic>
++#include <cmath>
++#include <iterator>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "base/base64url.h"
++#include "base/check.h"
++#include "base/command_line.h"
++#include "base/containers/span.h"
++#include "base/json/json_reader.h"
++#include "base/json/json_writer.h"
++#include "base/logging.h"
++#include "base/no_destructor.h"
++#include "base/strings/string_number_conversions.h"
++#include "base/values.h"
++
++namespace vanta {
++
++namespace {
++
++// content::switches::kProcessType. Spelled out because this component must
++// not depend on //content (Blink and services use it too).
++constexpr char kProcessTypeSwitch[] = "type";
++
++// Generous bounds: they only keep garbage out, the launcher's rules
++// (vanta-fingerprint C001-C030) decide what is plausible.
++constexpr size_t kMaxStringLength = 2048;
++constexpr size_t kMaxListLength = 4096;
++
++const char* const kSurfaceModeNames[] = {"real", "noise", "block"};
++
++// ---- Readers: each returns false when the key is missing or invalid -------
++
++// No control characters: several values end up in HTTP headers.
++bool IsCleanString(std::string_view s) {
++  if (s.size() > kMaxStringLength) {
++    return false;
++  }
++  for (char c : s) {
++    const unsigned char u = static_cast<unsigned char>(c);
++    if (u < 0x20 || u == 0x7f) {
++      return false;
++    }
++  }
++  return true;
++}
++
++bool ReadString(const base::DictValue& d,
++                std::string_view key,
++                bool allow_empty,
++                std::string* out) {
++  const std::string* v = d.FindString(key);
++  if (!v || (!allow_empty && v->empty()) || !IsCleanString(*v)) {
++    return false;
++  }
++  *out = *v;
++  return true;
++}
++
++bool ReadInt(const base::DictValue& d,
++             std::string_view key,
++             int min,
++             int max,
++             int* out) {
++  std::optional<int> v = d.FindInt(key);
++  if (!v || *v < min || *v > max) {
++    return false;
++  }
++  *out = *v;
++  return true;
++}
++
++// Accepts JSON integers too (serde writes 8.0, a hand-written payload 8).
++bool ReadDouble(const base::DictValue& d,
++                std::string_view key,
++                double min,
++                double max,
++                double* out) {
++  std::optional<double> v = d.FindDouble(key);
++  if (!v || !std::isfinite(*v) || *v < min || *v > max) {
++    return false;
++  }
++  *out = *v;
++  return true;
++}
++
++bool ReadBool(const base::DictValue& d, std::string_view key, bool* out) {
++  std::optional<bool> v = d.FindBool(key);
++  if (!v) {
++    return false;
++  }
++  *out = *v;
++  return true;
++}
++
++bool ReadStringList(const base::DictValue& d,
++                    std::string_view key,
++                    bool allow_empty_list,
++                    std::vector<std::string>* out) {
++  const base::ListValue* list = d.FindList(key);
++  if (!list || list->size() > kMaxListLength ||
++      (!allow_empty_list && list->empty())) {
++    return false;
++  }
++  std::vector<std::string> result;
++  result.reserve(list->size());
++  for (const base::Value& item : *list) {
++    const std::string* s = item.GetIfString();
++    if (!s || s->empty() || !IsCleanString(*s)) {
++      return false;
++    }
++    result.push_back(*s);
++  }
++  *out = std::move(result);
++  return true;
++}
++
++// [["Chromium", "156"], ...], serde's form of Vec<(String, String)>.
++bool ReadBrandList(const base::DictValue& d,
++                   std::string_view key,
++                   std::vector<BrandVersion>* out) {
++  const base::ListValue* list = d.FindList(key);
++  if (!list || list->empty() || list->size() > kMaxListLength) {
++    return false;
++  }
++  std::vector<BrandVersion> result;
++  result.reserve(list->size());
++  for (const base::Value& item : *list) {
++    const base::ListValue* pair = item.GetIfList();
++    if (!pair || pair->size() != 2) {
++      return false;
++    }
++    const std::string* brand = (*pair)[0].GetIfString();
++    const std::string* version = (*pair)[1].GetIfString();
++    if (!brand || !version || brand->empty() || version->empty() ||
++        !IsCleanString(*brand) || !IsCleanString(*version)) {
++      return false;
++    }
++    result.push_back({*brand, *version});
++  }
++  *out = std::move(result);
++  return true;
++}
++
++// Decimal digits only, 1..2^64-1.
++bool ReadSeed(const base::DictValue& d, std::string_view key, uint64_t* out) {
++  const std::string* s = d.FindString(key);
++  if (!s || s->empty() || s->size() > 20) {
++    return false;
++  }
++  for (char c : *s) {
++    if (c < '0' || c > '9') {
++      return false;
++    }
++  }
++  uint64_t v = 0;
++  if (!base::StringToUint64(*s, &v) || v == 0) {
++    return false;
++  }
++  *out = v;
++  return true;
++}
++
++bool ReadSurfaceMode(const base::DictValue& d,
++                     std::string_view key,
++                     SurfaceMode* out) {
++  const std::string* s = d.FindString(key);
++  if (!s) {
++    return false;
++  }
++  static constexpr SurfaceMode kModes[] = {
++      SurfaceMode::kReal, SurfaceMode::kNoise, SurfaceMode::kBlock};
++  for (size_t i = 0; i < std::size(kModes); ++i) {
++    if (*s == kSurfaceModeNames[i]) {
++      *out = kModes[i];
++      return true;
++    }
++  }
++  return false;
++}
++
++const char* SurfaceModeName(SurfaceMode mode) {
++  return kSurfaceModeNames[static_cast<size_t>(mode)];
++}
++
++const char* WindowsReleaseName(WindowsRelease os) {
++  return os == WindowsRelease::kWindows11 ? "windows11" : "windows10";
++}
++
++// A language tag as navigator.languages lists it: no separators the
++// Accept-Language syntax uses.
++bool IsLanguageTag(std::string_view tag) {
++  for (char c : tag) {
++    const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
++                    (c >= '0' && c <= '9') || c == '-';
++    if (!ok) {
++      return false;
++    }
++  }
++  return !tag.empty();
++}
++
++bool ReadUaClientHints(const base::DictValue& d, UaClientHints* out) {
++  UaClientHints ch;
++  if (!ReadBrandList(d, "brands", &ch.brands) ||
++      !ReadBrandList(d, "full_version_list", &ch.full_version_list) ||
++      !ReadString(d, "platform", false, &ch.platform) ||
++      !ReadString(d, "platform_version", false, &ch.platform_version) ||
++      !ReadString(d, "architecture", false, &ch.architecture) ||
++      !ReadString(d, "bitness", false, &ch.bitness) ||
++      !ReadString(d, "model", true, &ch.model) ||
++      !ReadBool(d, "mobile", &ch.mobile) ||
++      !ReadBool(d, "wow64", &ch.wow64) ||
++      !ReadStringList(d, "form_factors", true, &ch.form_factors)) {
++    return false;
++  }
++  // R1: Windows desktop personas only.
++  if (ch.platform != "Windows" || ch.mobile) {
++    return false;
++  }
++  *out = std::move(ch);
++  return true;
++}
++
++bool ReadScreen(const base::DictValue& payload, Screen* out) {
++  const base::DictValue* d = payload.FindDict("screen");
++  if (!d) {
++    return false;
++  }
++  Screen s;
++  if (!ReadInt(*d, "width", 1, 65535, &s.width) ||
++      !ReadInt(*d, "height", 1, 65535, &s.height) ||
++      !ReadInt(*d, "avail_width", 1, s.width, &s.avail_width) ||
++      !ReadInt(*d, "avail_height", 1, s.height, &s.avail_height) ||
++      !ReadInt(*d, "color_depth", 1, 64, &s.color_depth) ||
++      !ReadDouble(payload, "device_pixel_ratio", 0.1, 16.0,
++                  &s.device_pixel_ratio)) {
++    return false;
++  }
++  *out = s;
++  return true;
++}
++
++// "geo": absent or null -> no location and no time zone.
++bool ReadGeo(const base::DictValue& payload,
++             std::optional<Geolocation>* geo,
++             std::string* timezone) {
++  const base::Value* v = payload.Find("geo");
++  if (!v || v->is_none()) {
++    geo->reset();
++    timezone->clear();
++    return true;
++  }
++  const base::DictValue* d = v->GetIfDict();
++  if (!d) {
++    return false;
++  }
++  Geolocation g;
++  std::string tz;
++  if (!ReadString(*d, "country", true, &g.country) ||
++      !ReadString(*d, "timezone", false, &tz) ||
++      !ReadDouble(*d, "latitude", -90.0, 90.0, &g.latitude) ||
++      !ReadDouble(*d, "longitude", -180.0, 180.0, &g.longitude) ||
++      !ReadInt(*d, "accuracy_m", 0, 40'000'000, &g.accuracy_m)) {
++    return false;
++  }
++  *geo = std::move(g);
++  *timezone = std::move(tz);
++  return true;
++}
++
++base::ListValue StringList(const std::vector<std::string>& items) {
++  base::ListValue list;
++  for (const std::string& s : items) {
++    list.Append(s);
++  }
++  return list;
++}
++
++base::ListValue BrandList(const std::vector<BrandVersion>& items) {
++  base::ListValue list;
++  for (const BrandVersion& b : items) {
++    list.Append(base::ListValue().Append(b.brand).Append(b.version));
++  }
++  return list;
++}
++
++// ---- Process state ---------------------------------------------------------
++
++struct BrowserPersona {
++  std::unique_ptr<const Persona> persona;
++  std::string switch_value;
++};
++
++BrowserPersona& GetBrowserPersonaStorage() {
++  static base::NoDestructor<BrowserPersona> storage;
++  return *storage;
++}
++
++// Published once by InitializeBrowserPersona() before other threads start;
++// atomic anyway so a late reader never sees a half-built persona.
++std::atomic<const Persona*> g_browser_persona{nullptr};
++
++const Persona* GetChildPersona() {
++  if (!base::CommandLine::InitializedForCurrentProcess()) {
++    return nullptr;
++  }
++  // Thread-safe one-time initialization (C++11 magic statics).
++  static const Persona* const persona = []() -> const Persona* {
++    std::unique_ptr<Persona> parsed;
++    const PersonaSwitchState state =
++        ReadPersonaSwitch(*base::CommandLine::ForCurrentProcess(), &parsed);
++    // Fail closed: a child that cannot read the persona the browser gave it
++    // must not run with the host's real fingerprint.
++    CHECK(state != PersonaSwitchState::kMalformed)
++        << "vanta: --" << kPersonaSwitch << " is malformed";
++    // Lives as long as the process.
++    return parsed.release();
++  }();
++  return persona;
++}
++
++}  // namespace
++
++UaClientHints::UaClientHints() = default;
++UaClientHints::UaClientHints(const UaClientHints&) = default;
++UaClientHints& UaClientHints::operator=(const UaClientHints&) = default;
++UaClientHints::UaClientHints(UaClientHints&&) = default;
++UaClientHints& UaClientHints::operator=(UaClientHints&&) = default;
++UaClientHints::~UaClientHints() = default;
++bool UaClientHints::operator==(const UaClientHints&) const = default;
++
++Persona::Persona() = default;
++Persona::Persona(const Persona&) = default;
++Persona& Persona::operator=(const Persona&) = default;
++Persona::Persona(Persona&&) = default;
++Persona& Persona::operator=(Persona&&) = default;
++Persona::~Persona() = default;
++bool Persona::operator==(const Persona&) const = default;
++
++std::unique_ptr<Persona> PersonaFromDict(const base::DictValue& d) {
++  auto p = std::make_unique<Persona>();
++
++  if (!ReadInt(d, "schema", kPersonaSchema, kPersonaSchema, &p->schema)) {
++    return nullptr;
++  }
++  std::string os;
++  if (!ReadString(d, "os", false, &os)) {
++    return nullptr;
++  }
++  if (os == "windows10") {
++    p->os = WindowsRelease::kWindows10;
++  } else if (os == "windows11") {
++    p->os = WindowsRelease::kWindows11;
++  } else {
++    return nullptr;
++  }
++
++  // G2.
++  const base::DictValue* ua_ch = d.FindDict("ua_ch");
++  if (!ReadString(d, "user_agent", false, &p->user_agent) ||
++      !ReadString(d, "brand", false, &p->brand) ||
++      !ReadString(d, "platform", false, &p->platform) ||
++      p->platform != "Win32" || !ua_ch ||
++      !ReadUaClientHints(*ua_ch, &p->ua_ch)) {
++    return nullptr;
++  }
++
++  // G3.
++  if (!ReadInt(d, "hardware_concurrency", 1, 1024,
++               &p->hardware_concurrency) ||
++      !ReadDouble(d, "device_memory", 0.125, 4096.0, &p->device_memory_gb) ||
++      !ReadInt(d, "max_touch_points", 0, 256, &p->max_touch_points) ||
++      !ReadScreen(d, &p->screen)) {
++    return nullptr;
++  }
++
++  // G4/G5.
++  const base::DictValue* gpu = d.FindDict("gpu");
++  if (!gpu || !ReadString(*gpu, "vendor", false, &p->webgl.vendor) ||
++      !ReadString(*gpu, "renderer", false, &p->webgl.renderer) ||
++      !ReadString(*gpu, "webgpu_vendor", true, &p->webgpu.vendor) ||
++      !ReadString(*gpu, "webgpu_arch", true, &p->webgpu.architecture) ||
++      !ReadSurfaceMode(d, "canvas", &p->canvas_mode) ||
++      !ReadSurfaceMode(d, "webgl_image", &p->webgl_image_mode) ||
++      !ReadSurfaceMode(d, "audio", &p->audio_mode) ||
++      !ReadSeed(d, "canvas_seed", &p->seeds.canvas) ||
++      !ReadSeed(d, "audio_seed", &p->seeds.audio) ||
++      !ReadSeed(d, "webgl_seed", &p->seeds.webgl) ||
++      !ReadSeed(d, "font_seed", &p->seeds.font) ||
++      !ReadSeed(d, "clientrects_seed", &p->seeds.client_rects)) {
++    return nullptr;
++  }
++
++  // G6.
++  if (!ReadStringList(d, "fonts", false, &p->fonts)) {
++    return nullptr;
++  }
++
++  // G7.
++  const base::DictValue* media = d.FindDict("media_devices");
++  if (!ReadString(d, "locale", false, &p->locale) ||
++      !IsLanguageTag(p->locale) ||
++      !ReadStringList(d, "languages", false, &p->languages) ||
++      !ReadString(d, "accept_language", false, &p->accept_language) ||
++      !ReadGeo(d, &p->geolocation, &p->timezone) || !media ||
++      !ReadInt(*media, "audioinput", 0, 64, &p->media_devices.audio_input) ||
++      !ReadInt(*media, "audiooutput", 0, 64,
++               &p->media_devices.audio_output) ||
++      !ReadInt(*media, "videoinput", 0, 64, &p->media_devices.video_input)) {
++    return nullptr;
++  }
++  for (const std::string& language : p->languages) {
++    if (!IsLanguageTag(language)) {
++      return nullptr;
++    }
++  }
++
++  // G8.
++  if (!ReadString(d, "webrtc_policy", false, &p->webrtc_policy) ||
++      p->webrtc_policy != kWebRtcPolicyDisableNonProxiedUdp) {
++    return nullptr;
++  }
++
++  return p;
++}
++
++std::unique_ptr<Persona> ParsePersonaJson(std::string_view json) {
++  std::optional<base::DictValue> dict =
++      base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
++  if (!dict) {
++    return nullptr;
++  }
++  return PersonaFromDict(*dict);
++}
++
++std::string SerializePersona(const Persona& p) {
++  base::DictValue ua_ch;
++  ua_ch.Set("brands", BrandList(p.ua_ch.brands));
++  ua_ch.Set("full_version_list", BrandList(p.ua_ch.full_version_list));
++  ua_ch.Set("platform", p.ua_ch.platform);
++  ua_ch.Set("platform_version", p.ua_ch.platform_version);
++  ua_ch.Set("architecture", p.ua_ch.architecture);
++  ua_ch.Set("bitness", p.ua_ch.bitness);
++  ua_ch.Set("model", p.ua_ch.model);
++  ua_ch.Set("mobile", p.ua_ch.mobile);
++  ua_ch.Set("wow64", p.ua_ch.wow64);
++  ua_ch.Set("form_factors", StringList(p.ua_ch.form_factors));
++
++  base::DictValue screen;
++  screen.Set("width", p.screen.width);
++  screen.Set("height", p.screen.height);
++  screen.Set("avail_width", p.screen.avail_width);
++  screen.Set("avail_height", p.screen.avail_height);
++  screen.Set("color_depth", p.screen.color_depth);
++
++  base::DictValue gpu;
++  gpu.Set("vendor", p.webgl.vendor);
++  gpu.Set("renderer", p.webgl.renderer);
++  gpu.Set("webgpu_vendor", p.webgpu.vendor);
++  gpu.Set("webgpu_arch", p.webgpu.architecture);
++
++  base::DictValue media;
++  media.Set("audioinput", p.media_devices.audio_input);
++  media.Set("audiooutput", p.media_devices.audio_output);
++  media.Set("videoinput", p.media_devices.video_input);
++
++  base::DictValue d;
++  d.Set("schema", p.schema);
++  d.Set("os", WindowsReleaseName(p.os));
++  d.Set("user_agent", p.user_agent);
++  d.Set("brand", p.brand);
++  d.Set("platform", p.platform);
++  d.Set("ua_ch", std::move(ua_ch));
++  d.Set("hardware_concurrency", p.hardware_concurrency);
++  d.Set("device_memory", p.device_memory_gb);
++  d.Set("max_touch_points", p.max_touch_points);
++  d.Set("screen", std::move(screen));
++  d.Set("device_pixel_ratio", p.screen.device_pixel_ratio);
++  d.Set("gpu", std::move(gpu));
++  d.Set("canvas", SurfaceModeName(p.canvas_mode));
++  d.Set("webgl_image", SurfaceModeName(p.webgl_image_mode));
++  d.Set("audio", SurfaceModeName(p.audio_mode));
++  d.Set("canvas_seed", base::NumberToString(p.seeds.canvas));
++  d.Set("audio_seed", base::NumberToString(p.seeds.audio));
++  d.Set("webgl_seed", base::NumberToString(p.seeds.webgl));
++  d.Set("font_seed", base::NumberToString(p.seeds.font));
++  d.Set("clientrects_seed", base::NumberToString(p.seeds.client_rects));
++  d.Set("fonts", StringList(p.fonts));
++  d.Set("locale", p.locale);
++  d.Set("languages", StringList(p.languages));
++  d.Set("accept_language", p.accept_language);
++  if (p.geolocation) {
++    base::DictValue geo;
++    geo.Set("country", p.geolocation->country);
++    geo.Set("timezone", p.timezone);
++    geo.Set("latitude", p.geolocation->latitude);
++    geo.Set("longitude", p.geolocation->longitude);
++    geo.Set("accuracy_m", p.geolocation->accuracy_m);
++    d.Set("geo", std::move(geo));
++  }
++  d.Set("media_devices", std::move(media));
++  d.Set("webrtc_policy", p.webrtc_policy);
++
++  // DictValue keeps keys sorted, so the text is canonical. Only fails on
++  // binary values or excessive depth, neither of which is possible here.
++  std::optional<std::string> json = base::WriteJson(d);
++  CHECK(json);
++  return std::move(*json);
++}
++
++std::string EncodePersonaSwitchValue(const Persona& persona) {
++  const std::string json = SerializePersona(persona);
++  std::string out;
++  // The browser encodes during BasicStartupComplete, before base::FeatureList
++  // exists; the EarlyStartup variant does not consult features.
++  base::Base64UrlEncodeEarlyStartup(base::as_byte_span(json),
++                                    base::Base64UrlEncodePolicy::OMIT_PADDING,
++                                    &out);
++  return out;
++}
++
++std::unique_ptr<Persona> DecodePersonaSwitchValue(std::string_view value) {
++  if (value.empty() || value.size() > kMaxPersonaSwitchValueLength) {
++    return nullptr;
++  }
++  std::string json;
++  if (!base::Base64UrlDecode(value, base::Base64UrlDecodePolicy::DISALLOW_PADDING,
++                             &json)) {
++    return nullptr;
++  }
++  return ParsePersonaJson(json);
++}
++
++PersonaSwitchState ReadPersonaSwitch(const base::CommandLine& command_line,
++                                     std::unique_ptr<Persona>* persona) {
++  persona->reset();
++  // The browser process trusts only the signed --vanta-config.
++  if (!command_line.HasSwitch(kProcessTypeSwitch) ||
++      !command_line.HasSwitch(kPersonaSwitch)) {
++    return PersonaSwitchState::kAbsent;
++  }
++  *persona =
++      DecodePersonaSwitchValue(command_line.GetSwitchValueASCII(kPersonaSwitch));
++  return *persona ? PersonaSwitchState::kValid
++                  : PersonaSwitchState::kMalformed;
++}
++
++const Persona* GetPersona() {
++  if (const Persona* p = g_browser_persona.load(std::memory_order_acquire)) {
++    return p;
++  }
++  if (!base::CommandLine::InitializedForCurrentProcess() ||
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(kProcessTypeSwitch)) {
++    // Browser process without a verified persona (or too early to tell).
++    return nullptr;
++  }
++  return GetChildPersona();
++}
++
++bool InitializeBrowserPersona(const base::DictValue& verified_payload) {
++  CHECK(!g_browser_persona.load(std::memory_order_acquire))
++      << "vanta: browser persona initialized twice";
++  std::unique_ptr<Persona> persona = PersonaFromDict(verified_payload);
++  if (!persona) {
++    LOG(ERROR) << "vanta: persona fields missing or invalid";
++    return false;
++  }
++  std::string value = EncodePersonaSwitchValue(*persona);
++  if (value.size() > kMaxPersonaSwitchValueLength) {
++    LOG(ERROR) << "vanta: persona too large for --" << kPersonaSwitch << " ("
++               << value.size() << " bytes)";
++    return false;
++  }
++  BrowserPersona& storage = GetBrowserPersonaStorage();
++  storage.switch_value = std::move(value);
++  storage.persona = std::move(persona);
++  g_browser_persona.store(storage.persona.get(), std::memory_order_release);
++  return true;
++}
++
++void AppendPersonaSwitch(base::CommandLine* child) {
++  if (!g_browser_persona.load(std::memory_order_acquire) ||
++      child->HasSwitch(kPersonaSwitch)) {
++    return;
++  }
++  child->AppendSwitchASCII(kPersonaSwitch,
++                           GetBrowserPersonaStorage().switch_value);
++}
++
++void ResetBrowserPersonaForTesting() {
++  g_browser_persona.store(nullptr, std::memory_order_release);
++  BrowserPersona& storage = GetBrowserPersonaStorage();
++  storage.persona.reset();
++  storage.switch_value.clear();
++}
++
++}  // namespace vanta
+--- /dev/null
++++ b/components/vanta/persona_unittest.cc
+@@ -0,0 +1,470 @@
++// Copyright 2026 The Vanta Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "components/vanta/persona.h"
++
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <utility>
++#include <vector>
++
++#include "base/base64.h"
++#include "base/check.h"
++#include "base/command_line.h"
++#include "base/json/json_reader.h"
++#include "base/values.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace vanta {
++namespace {
++
++// A real signed-launch payload as vanta-fingerprint `sign_launch` writes it
++// (builtin device win10-rtx3060-1080p, seed 9, de-DE, geo DE), including the
++// keys the persona ignores (seed, device_id, engine, vanta_launch).
++constexpr char kPayload[] =
++    "{\"schema\":1,\"seed\":9,\"device_id\":\"win10-rtx3060-1080p\",\"os\""
++    ":\"windows10\",\"engine\":{\"major\":156,\"minor\":0,\"build\":8078,"
++    "\"patch\":79},\"brand\":\"Google Chrome\",\"user_agent\":\"Mozilla/5"
++    ".0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gec"
++    "ko) Chrome/156.0.0.0 Safari/537.36\",\"platform\":\"Win32\",\"ua_ch\""
++    ":{\"brands\":[[\"Not:A-Brand\",\"8\"],[\"Chromium\",\"156\"],[\"Goog"
++    "le Chrome\",\"156\"]],\"full_version_list\":[[\"Not:A-Brand\",\"8.0."
++    "0.0\"],[\"Chromium\",\"156.0.8078.79\"],[\"Google Chrome\",\"156.0.8"
++    "078.79\"]],\"platform\":\"Windows\",\"platform_version\":\"10.0.0\","
++    "\"architecture\":\"x86\",\"bitness\":\"64\",\"model\":\"\",\"mobile\""
++    ":false,\"wow64\":false,\"form_factors\":[\"Desktop\"]},\"screen\":{\""
++    "width\":1920,\"height\":1080,\"avail_width\":1920,\"avail_height\":1"
++    "040,\"color_depth\":24},\"device_pixel_ratio\":1.0,\"hardware_concur"
++    "rency\":12,\"device_memory\":8.0,\"max_touch_points\":0,\"gpu\":{\"v"
++    "endor\":\"Google Inc. (NVIDIA)\",\"renderer\":\"ANGLE (NVIDIA, NVIDI"
++    "A GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)\",\""
++    "webgpu_vendor\":\"nvidia\",\"webgpu_arch\":\"ampere\"},\"fonts\":[\""
++    "Arial\",\"Calibri\",\"Cambria\",\"Candara\",\"Comic Sans MS\",\"Cons"
++    "olas\",\"Courier New\",\"Ebrima\",\"Gadugi\",\"Georgia\",\"Impact\","
++    "\"Lucida Console\",\"MS Gothic\",\"Marlett\",\"Palatino Linotype\",\""
++    "Segoe UI\",\"Segoe UI Emoji\",\"Segoe UI Symbol\",\"Sylfaen\",\"Taho"
++    "ma\",\"Times New Roman\",\"Trebuchet MS\",\"Verdana\"],\"media_devic"
++    "es\":{\"audioinput\":1,\"audiooutput\":2,\"videoinput\":1},\"locale\""
++    ":\"de-DE\",\"languages\":[\"de-DE\",\"de\",\"en-US\",\"en\"],\"geo\""
++    ":{\"country\":\"DE\",\"timezone\":\"Europe/Berlin\",\"latitude\":52."
++    "52,\"longitude\":13.405,\"accuracy_m\":5000},\"canvas\":\"real\",\"w"
++    "ebgl_image\":\"real\",\"audio\":\"noise\",\"canvas_seed\":\"88517694"
++    "22948354661\",\"audio_seed\":\"15586360723426762353\",\"clientrects_"
++    "seed\":\"13199412113825659010\",\"webrtc_policy\":\"disable_non_prox"
++    "ied_udp\",\"webgl_seed\":\"9347631466808205141\",\"font_seed\":\"309"
++    "6253649036819159\",\"accept_language\":\"de-DE,de;q=0.9,en-US;q=0.8,"
++    "en;q=0.7\",\"vanta_launch\":{\"profile_id\":\"0b6c1d1e-5f43-4c7a-9a0"
++    "e-1d2f3a4b5c6d\",\"relay_port\":40123,\"issued_ms\":1762600000000}}";
++// The same device without a location (en-US): "geo" is null.
++constexpr char kPayloadNoGeo[] =
++    "{\"schema\":1,\"seed\":9,\"device_id\":\"win10-rtx3060-1080p\",\"os\""
++    ":\"windows10\",\"engine\":{\"major\":156,\"minor\":0,\"build\":8078,"
++    "\"patch\":79},\"brand\":\"Google Chrome\",\"user_agent\":\"Mozilla/5"
++    ".0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gec"
++    "ko) Chrome/156.0.0.0 Safari/537.36\",\"platform\":\"Win32\",\"ua_ch\""
++    ":{\"brands\":[[\"Not:A-Brand\",\"8\"],[\"Chromium\",\"156\"],[\"Goog"
++    "le Chrome\",\"156\"]],\"full_version_list\":[[\"Not:A-Brand\",\"8.0."
++    "0.0\"],[\"Chromium\",\"156.0.8078.79\"],[\"Google Chrome\",\"156.0.8"
++    "078.79\"]],\"platform\":\"Windows\",\"platform_version\":\"10.0.0\","
++    "\"architecture\":\"x86\",\"bitness\":\"64\",\"model\":\"\",\"mobile\""
++    ":false,\"wow64\":false,\"form_factors\":[\"Desktop\"]},\"screen\":{\""
++    "width\":1920,\"height\":1080,\"avail_width\":1920,\"avail_height\":1"
++    "040,\"color_depth\":24},\"device_pixel_ratio\":1.0,\"hardware_concur"
++    "rency\":12,\"device_memory\":8.0,\"max_touch_points\":0,\"gpu\":{\"v"
++    "endor\":\"Google Inc. (NVIDIA)\",\"renderer\":\"ANGLE (NVIDIA, NVIDI"
++    "A GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)\",\""
++    "webgpu_vendor\":\"nvidia\",\"webgpu_arch\":\"ampere\"},\"fonts\":[\""
++    "Arial\",\"Calibri\",\"Cambria\",\"Candara\",\"Comic Sans MS\",\"Cons"
++    "olas\",\"Courier New\",\"Ebrima\",\"Gadugi\",\"Georgia\",\"Impact\","
++    "\"Lucida Console\",\"MS Gothic\",\"Marlett\",\"Palatino Linotype\",\""
++    "Segoe UI\",\"Segoe UI Emoji\",\"Segoe UI Symbol\",\"Sylfaen\",\"Taho"
++    "ma\",\"Times New Roman\",\"Trebuchet MS\",\"Verdana\"],\"media_devic"
++    "es\":{\"audioinput\":1,\"audiooutput\":2,\"videoinput\":1},\"locale\""
++    ":\"en-US\",\"languages\":[\"en-US\",\"en\"],\"geo\":null,\"canvas\":"
++    "\"real\",\"webgl_image\":\"real\",\"audio\":\"noise\",\"canvas_seed\""
++    ":\"8851769422948354661\",\"audio_seed\":\"15586360723426762353\",\"c"
++    "lientrects_seed\":\"13199412113825659010\",\"webrtc_policy\":\"disab"
++    "le_non_proxied_udp\",\"webgl_seed\":\"9347631466808205141\",\"font_s"
++    "eed\":\"3096253649036819159\",\"accept_language\":\"en-US,en;q=0.9\""
++    ",\"vanta_launch\":{\"profile_id\":\"0b6c1d1e-5f43-4c7a-9a0e-1d2f3a4b"
++    "5c6d\",\"relay_port\":40123,\"issued_ms\":1762600000000}}";
++
++base::DictValue PayloadDict() {
++  std::optional<base::DictValue> d =
++      base::JSONReader::ReadDict(kPayload, base::JSON_PARSE_RFC);
++  CHECK(d);
++  return std::move(*d);
++}
++
++// `payload` with the value at `path` replaced by the JSON `value`.
++std::unique_ptr<Persona> WithValue(std::string_view path,
++                                   std::string_view value) {
++  base::DictValue d = PayloadDict();
++  std::optional<base::Value> v =
++      base::JSONReader::Read(value, base::JSON_PARSE_RFC);
++  CHECK(v) << value;
++  d.SetByDottedPath(path, std::move(*v));
++  return PersonaFromDict(d);
++}
++
++std::unique_ptr<Persona> Without(std::string_view path) {
++  base::DictValue d = PayloadDict();
++  CHECK(d.RemoveByDottedPath(path)) << path;
++  return PersonaFromDict(d);
++}
++
++class ScopedBrowserPersonaReset {
++ public:
++  ScopedBrowserPersonaReset() { ResetBrowserPersonaForTesting(); }
++  ~ScopedBrowserPersonaReset() { ResetBrowserPersonaForTesting(); }
++};
++
++TEST(VantaPersonaTest, ParsesLaunchPayload) {
++  std::unique_ptr<Persona> p = ParsePersonaJson(kPayload);
++  ASSERT_TRUE(p);
++  EXPECT_EQ(p->schema, 1);
++  EXPECT_EQ(p->os, WindowsRelease::kWindows10);
++  EXPECT_EQ(p->user_agent,
++            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
++            "(KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36");
++  EXPECT_EQ(p->brand, "Google Chrome");
++  EXPECT_EQ(p->platform, "Win32");
++
++  ASSERT_EQ(p->ua_ch.brands.size(), 3u);
++  EXPECT_EQ(p->ua_ch.brands[1].brand, "Chromium");
++  EXPECT_EQ(p->ua_ch.brands[1].version, "156");
++  ASSERT_EQ(p->ua_ch.full_version_list.size(), 3u);
++  EXPECT_EQ(p->ua_ch.full_version_list[2].brand, "Google Chrome");
++  EXPECT_EQ(p->ua_ch.full_version_list[2].version, "156.0.8078.79");
++  EXPECT_EQ(p->ua_ch.platform, "Windows");
++  EXPECT_EQ(p->ua_ch.platform_version, "10.0.0");
++  EXPECT_EQ(p->ua_ch.architecture, "x86");
++  EXPECT_EQ(p->ua_ch.bitness, "64");
++  EXPECT_EQ(p->ua_ch.model, "");
++  EXPECT_FALSE(p->ua_ch.mobile);
++  EXPECT_FALSE(p->ua_ch.wow64);
++  EXPECT_EQ(p->ua_ch.form_factors, std::vector<std::string>{"Desktop"});
++
++  EXPECT_EQ(p->hardware_concurrency, 12);
++  EXPECT_EQ(p->device_memory_gb, 8.0);
++  EXPECT_EQ(p->max_touch_points, 0);
++  EXPECT_EQ(p->screen.width, 1920);
++  EXPECT_EQ(p->screen.height, 1080);
++  EXPECT_EQ(p->screen.avail_width, 1920);
++  EXPECT_EQ(p->screen.avail_height, 1040);
++  EXPECT_EQ(p->screen.color_depth, 24);
++  EXPECT_EQ(p->screen.device_pixel_ratio, 1.0);
++
++  EXPECT_EQ(p->webgl.vendor, "Google Inc. (NVIDIA)");
++  EXPECT_EQ(p->webgl.renderer,
++            "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 "
++            "vs_5_0 ps_5_0, D3D11)");
++  EXPECT_EQ(p->webgpu.vendor, "nvidia");
++  EXPECT_EQ(p->webgpu.architecture, "ampere");
++  EXPECT_EQ(p->canvas_mode, SurfaceMode::kReal);
++  EXPECT_EQ(p->webgl_image_mode, SurfaceMode::kReal);
++  EXPECT_EQ(p->audio_mode, SurfaceMode::kNoise);
++  // Full 64-bit precision (these exceed 2^53).
++  EXPECT_EQ(p->seeds.canvas, 8851769422948354661ull);
++  EXPECT_EQ(p->seeds.audio, 15586360723426762353ull);
++  EXPECT_EQ(p->seeds.client_rects, 13199412113825659010ull);
++  EXPECT_EQ(p->seeds.webgl, 9347631466808205141ull);
++  EXPECT_EQ(p->seeds.font, 3096253649036819159ull);
++
++  ASSERT_EQ(p->fonts.size(), 23u);
++  EXPECT_EQ(p->fonts.front(), "Arial");
++  EXPECT_EQ(p->fonts.back(), "Verdana");
++
++  EXPECT_EQ(p->timezone, "Europe/Berlin");
++  EXPECT_EQ(p->locale, "de-DE");
++  EXPECT_EQ(p->languages,
++            (std::vector<std::string>{"de-DE", "de", "en-US", "en"}));
++  EXPECT_EQ(p->accept_language, "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7");
++  ASSERT_TRUE(p->geolocation);
++  EXPECT_EQ(p->geolocation->country, "DE");
++  EXPECT_EQ(p->geolocation->latitude, 52.52);
++  EXPECT_EQ(p->geolocation->longitude, 13.405);
++  EXPECT_EQ(p->geolocation->accuracy_m, 5000);
++  EXPECT_EQ(p->media_devices.audio_input, 1);
++  EXPECT_EQ(p->media_devices.audio_output, 2);
++  EXPECT_EQ(p->media_devices.video_input, 1);
++
++  EXPECT_EQ(p->webrtc_policy, "disable_non_proxied_udp");
++}
++
++TEST(VantaPersonaTest, NoGeoMeansNoTimezone) {
++  std::unique_ptr<Persona> p = ParsePersonaJson(kPayloadNoGeo);
++  ASSERT_TRUE(p);
++  EXPECT_FALSE(p->geolocation);
++  EXPECT_EQ(p->timezone, "");
++  EXPECT_EQ(p->locale, "en-US");
++  EXPECT_EQ(p->accept_language, "en-US,en;q=0.9");
++  // A missing "geo" key reads the same as null.
++  std::unique_ptr<Persona> q = Without("geo");
++  ASSERT_TRUE(q);
++  EXPECT_FALSE(q->geolocation);
++  EXPECT_EQ(q->timezone, "");
++}
++
++TEST(VantaPersonaTest, CanonicalJsonRoundTrips) {
++  for (const char* json : {kPayload, kPayloadNoGeo}) {
++    std::unique_ptr<Persona> p = ParsePersonaJson(json);
++    ASSERT_TRUE(p);
++    const std::string canonical = SerializePersona(*p);
++    std::unique_ptr<Persona> back = ParsePersonaJson(canonical);
++    ASSERT_TRUE(back) << canonical;
++    EXPECT_EQ(*back, *p);
++    EXPECT_EQ(SerializePersona(*back), canonical);
++    // Only persona fields travel to children.
++    EXPECT_EQ(canonical.find("vanta_launch"), std::string::npos);
++    EXPECT_EQ(canonical.find("relay_port"), std::string::npos);
++    EXPECT_EQ(canonical.find("device_id"), std::string::npos);
++  }
++}
++
++TEST(VantaPersonaTest, SwitchValueRoundTrips) {
++  std::unique_ptr<Persona> p = ParsePersonaJson(kPayload);
++  ASSERT_TRUE(p);
++  const std::string value = EncodePersonaSwitchValue(*p);
++  EXPECT_LE(value.size(), kMaxPersonaSwitchValueLength);
++  EXPECT_EQ(value.find_first_of("+/="), std::string::npos);
++  std::unique_ptr<Persona> back = DecodePersonaSwitchValue(value);
++  ASSERT_TRUE(back);
++  EXPECT_EQ(*back, *p);
++}
++
++TEST(VantaPersonaTest, MalformedJsonIsNull) {
++  for (const char* json :
++       {"", " ", "null", "[]", "1", "\"x\"", "{", "{}", "{\"schema\":1}",
++        "{\"schema\":1,} ", "// comment\n{}"}) {
++    EXPECT_FALSE(ParsePersonaJson(json)) << json;
++  }
++  // Truncated payload.
++  const std::string half(kPayload, sizeof(kPayload) / 2);
++  EXPECT_FALSE(ParsePersonaJson(half));
++  // Chromium JSON extensions are not accepted (RFC mode).
++  std::string trailing_comma(kPayload);
++  trailing_comma.insert(trailing_comma.size() - 1, ",");
++  EXPECT_FALSE(ParsePersonaJson(trailing_comma));
++}
++
++TEST(VantaPersonaTest, MissingFieldIsNull) {
++  for (const char* path :
++       {"schema", "os", "user_agent", "brand", "platform", "ua_ch",
++        "ua_ch.brands", "ua_ch.full_version_list", "ua_ch.platform",
++        "ua_ch.platform_version", "ua_ch.architecture", "ua_ch.bitness",
++        "ua_ch.model", "ua_ch.mobile", "ua_ch.wow64", "ua_ch.form_factors",
++        "hardware_concurrency", "device_memory", "max_touch_points", "screen",
++        "screen.width", "screen.height", "screen.avail_width",
++        "screen.avail_height", "screen.color_depth", "device_pixel_ratio",
++        "gpu", "gpu.vendor", "gpu.renderer", "gpu.webgpu_vendor",
++        "gpu.webgpu_arch", "canvas", "webgl_image", "audio", "canvas_seed",
++        "audio_seed", "webgl_seed", "font_seed", "clientrects_seed", "fonts",
++        "locale", "languages", "accept_language", "geo.country",
++        "geo.timezone", "geo.latitude", "geo.longitude", "geo.accuracy_m",
++        "media_devices", "media_devices.audioinput",
++        "media_devices.audiooutput", "media_devices.videoinput",
++        "webrtc_policy"}) {
++    EXPECT_FALSE(Without(path)) << path;
++  }
++  // Keys the persona does not use may go.
++  for (const char* path : {"seed", "device_id", "engine", "vanta_launch"}) {
++    EXPECT_TRUE(Without(path)) << path;
++  }
++}
++
++TEST(VantaPersonaTest, InvalidValueIsNull) {
++  struct Case {
++    const char* path;
++    const char* json;
++  };
++  const Case kCases[] = {
++      // Schema and OS (R1: Windows 10/11 desktop only).
++      {"schema", "2"},
++      {"schema", "\"1\""},
++      {"os", "\"macos\""},
++      {"os", "\"Windows10\""},
++      {"platform", "\"MacIntel\""},
++      {"ua_ch.platform", "\"macOS\""},
++      {"ua_ch.mobile", "true"},
++      {"ua_ch.mobile", "\"false\""},
++      // Strings that would end up in headers.
++      {"user_agent", "\"Mozilla/5.0\\r\\nX-Evil: 1\""},
++      {"user_agent", "\"\""},
++      {"accept_language", "\"de\\nX: y\""},
++      // Brand lists.
++      {"ua_ch.brands", "[]"},
++      {"ua_ch.brands", "[[\"Chromium\"]]"},
++      {"ua_ch.brands", "[[\"Chromium\",\"156\",\"x\"]]"},
++      {"ua_ch.brands", "[[\"Chromium\",156]]"},
++      {"ua_ch.brands", "[{\"brand\":\"Chromium\",\"version\":\"156\"}]"},
++      // Hardware and screen.
++      {"hardware_concurrency", "0"},
++      {"hardware_concurrency", "\"12\""},
++      {"hardware_concurrency", "12.5"},
++      {"device_memory", "0"},
++      {"device_memory", "-8"},
++      {"device_memory", "\"8\""},
++      {"max_touch_points", "-1"},
++      {"screen.width", "0"},
++      {"screen.avail_width", "1921"},
++      {"screen.avail_height", "1081"},
++      {"screen.color_depth", "0"},
++      {"device_pixel_ratio", "0"},
++      {"device_pixel_ratio", "\"1\""},
++      // Graphics.
++      {"gpu.vendor", "\"\""},
++      {"gpu.renderer", "null"},
++      {"canvas", "\"fuzz\""},
++      {"webgl_image", "\"Noise\""},
++      {"audio", "1"},
++      // Seeds: decimal strings, non-zero, within u64.
++      {"canvas_seed", "8851769422948354661"},
++      {"canvas_seed", "\"0\""},
++      {"canvas_seed", "\"\""},
++      {"canvas_seed", "\"-1\""},
++      {"canvas_seed", "\"+1\""},
++      {"canvas_seed", "\" 1\""},
++      {"canvas_seed", "\"0x10\""},
++      {"canvas_seed", "\"1e3\""},
++      {"canvas_seed", "\"18446744073709551616\""},
++      {"font_seed", "null"},
++      // Fonts, locale and languages.
++      {"fonts", "[]"},
++      {"fonts", "[\"Arial\", \"\"]"},
++      {"fonts", "[\"Arial\", 1]"},
++      {"fonts", "\"Arial\""},
++      {"locale", "\"de_DE\""},
++      {"languages", "[]"},
++      {"languages", "[\"de-DE\", \"de;q=0.9\"]"},
++      {"languages", "[\"de-DE,de\"]"},
++      // Geo.
++      {"geo", "\"Europe/Berlin\""},
++      {"geo", "[]"},
++      {"geo.timezone", "\"\""},
++      {"geo.latitude", "91"},
++      {"geo.longitude", "-181"},
++      {"geo.accuracy_m", "-1"},
++      // Media devices.
++      {"media_devices.videoinput", "-1"},
++      {"media_devices.audioinput", "\"1\""},
++      // G8: one policy only.
++      {"webrtc_policy", "\"default\""},
++      {"webrtc_policy", "\"default_public_interface_only\""},
++  };
++  for (const Case& c : kCases) {
++    EXPECT_FALSE(WithValue(c.path, c.json)) << c.path << " = " << c.json;
++  }
++}
++
++TEST(VantaPersonaTest, ValidVariantsAreAccepted) {
++  EXPECT_TRUE(WithValue("os", "\"windows11\""));
++  EXPECT_TRUE(WithValue("device_memory", "8"));  // integer form
++  EXPECT_TRUE(WithValue("device_pixel_ratio", "1.25"));
++  EXPECT_TRUE(WithValue("canvas", "\"block\""));
++  EXPECT_TRUE(WithValue("canvas_seed", "\"18446744073709551615\""));
++  EXPECT_TRUE(WithValue("fonts", "[\"Microsoft YaHei\", \"\\u5fae\\u8f6f\"]"));
++  EXPECT_TRUE(WithValue("geo", "null"));
++  std::unique_ptr<Persona> p = WithValue("os", "\"windows11\"");
++  ASSERT_TRUE(p);
++  EXPECT_EQ(p->os, WindowsRelease::kWindows11);
++}
++
++TEST(VantaPersonaTest, MalformedSwitchValueIsNull) {
++  std::unique_ptr<Persona> p = ParsePersonaJson(kPayload);
++  ASSERT_TRUE(p);
++  const std::string good = EncodePersonaSwitchValue(*p);
++
++  EXPECT_FALSE(DecodePersonaSwitchValue(""));
++  EXPECT_FALSE(DecodePersonaSwitchValue("!!!!"));
++  EXPECT_FALSE(DecodePersonaSwitchValue(good + "="));  // padding
++  EXPECT_FALSE(DecodePersonaSwitchValue(good.substr(0, good.size() - 3)));
++  // Standard (not url-safe) base64 of the same JSON.
++  const std::string standard = base::Base64Encode(SerializePersona(*p));
++  if (standard.find_first_of("+/") != std::string::npos) {
++    EXPECT_FALSE(DecodePersonaSwitchValue(standard));
++  }
++  // Valid base64url, not a persona.
++  EXPECT_FALSE(DecodePersonaSwitchValue("e30"));  // "{}"
++  // Too long, even if it were valid.
++  EXPECT_FALSE(DecodePersonaSwitchValue(
++      std::string(kMaxPersonaSwitchValueLength + 1, 'A')));
++}
++
++TEST(VantaPersonaTest, ReadPersonaSwitch) {
++  std::unique_ptr<Persona> expected = ParsePersonaJson(kPayload);
++  ASSERT_TRUE(expected);
++  const std::string value = EncodePersonaSwitchValue(*expected);
++  std::unique_ptr<Persona> out;
++
++  // The browser process (no --type) never trusts the switch.
++  base::CommandLine browser(base::CommandLine::NO_PROGRAM);
++  browser.AppendSwitchASCII(kPersonaSwitch, value);
++  EXPECT_EQ(ReadPersonaSwitch(browser, &out), PersonaSwitchState::kAbsent);
++  EXPECT_FALSE(out);
++
++  base::CommandLine plain_child(base::CommandLine::NO_PROGRAM);
++  plain_child.AppendSwitchASCII("type", "renderer");
++  EXPECT_EQ(ReadPersonaSwitch(plain_child, &out),
++            PersonaSwitchState::kAbsent);
++  EXPECT_FALSE(out);
++
++  base::CommandLine child(base::CommandLine::NO_PROGRAM);
++  child.AppendSwitchASCII("type", "gpu-process");
++  child.AppendSwitchASCII(kPersonaSwitch, value);
++  EXPECT_EQ(ReadPersonaSwitch(child, &out), PersonaSwitchState::kValid);
++  ASSERT_TRUE(out);
++  EXPECT_EQ(*out, *expected);
++
++  base::CommandLine bad_child(base::CommandLine::NO_PROGRAM);
++  bad_child.AppendSwitchASCII("type", "utility");
++  bad_child.AppendSwitchASCII(kPersonaSwitch, "e30");
++  EXPECT_EQ(ReadPersonaSwitch(bad_child, &out),
++            PersonaSwitchState::kMalformed);
++  EXPECT_FALSE(out);
++
++  base::CommandLine empty_child(base::CommandLine::NO_PROGRAM);
++  empty_child.AppendSwitchASCII("type", "renderer");
++  empty_child.AppendSwitch(kPersonaSwitch);
++  EXPECT_EQ(ReadPersonaSwitch(empty_child, &out),
++            PersonaSwitchState::kMalformed);
++}
++
++TEST(VantaPersonaTest, BrowserPersonaAndChildSwitch) {
++  ScopedBrowserPersonaReset reset;
++  // The test binary is a "browser" process: no persona until initialized.
++  EXPECT_EQ(GetPersona(), nullptr);
++
++  base::CommandLine untouched(base::CommandLine::NO_PROGRAM);
++  untouched.AppendSwitchASCII("type", "renderer");
++  AppendPersonaSwitch(&untouched);
++  EXPECT_FALSE(untouched.HasSwitch(kPersonaSwitch));
++
++  base::DictValue bad = PayloadDict();
++  bad.Set("webrtc_policy", "default");
++  EXPECT_FALSE(InitializeBrowserPersona(bad));
++  EXPECT_EQ(GetPersona(), nullptr);
++
++  ASSERT_TRUE(InitializeBrowserPersona(PayloadDict()));
++  const Persona* persona = GetPersona();
++  ASSERT_TRUE(persona);
++  EXPECT_EQ(*persona, *ParsePersonaJson(kPayload));
++  EXPECT_EQ(GetPersona(), persona);  // Stable pointer.
++
++  base::CommandLine child(base::CommandLine::NO_PROGRAM);
++  child.AppendSwitchASCII("type", "renderer");
++  AppendPersonaSwitch(&child);
++  AppendPersonaSwitch(&child);  // Idempotent.
++  EXPECT_EQ(child.argv().size(), 3u);  // program slot, --type, --vanta-persona
++  std::unique_ptr<Persona> from_child;
++  EXPECT_EQ(ReadPersonaSwitch(child, &from_child),
++            PersonaSwitchState::kValid);
++  ASSERT_TRUE(from_child);
++  EXPECT_EQ(*from_child, *persona);
++}
++
++}  // namespace
++}  // namespace vanta
+--- a/chrome/browser/vanta/BUILD.gn
++++ b/chrome/browser/vanta/BUILD.gn
+@@ -11,6 +11,7 @@
+   deps = [
+     "//base",
+     "//base/version_info",
++    "//components/vanta",
+     "//third_party/boringssl",
+   ]
+ }
+--- a/chrome/browser/vanta/DEPS
++++ b/chrome/browser/vanta/DEPS
+@@ -1,4 +1,5 @@
+ include_rules = [
+   "+base",
++  "+components/vanta",
+   "+third_party/boringssl/src/include",
+ ]
+--- a/chrome/browser/vanta/launch_config.h
++++ b/chrome/browser/vanta/launch_config.h
+@@ -29,8 +29,9 @@
+ // Runs in the browser process before anything touches the profile. Without
+ // --vanta-config it does nothing and returns std::nullopt. With it, the config
+ // must carry a valid Ed25519 signature for --vanta-pubkey (else 86) and its
+-// payload's engine version must equal this engine's own version (else 87).
+-// Returns the exit code to stop with, or std::nullopt to continue.
++// payload's engine version must equal this engine's own version (else 87),
++// and its persona fields must parse (vanta::InitializeBrowserPersona, else
++// 86). Returns the exit code to stop with, or std::nullopt to continue.
+ std::optional<int> VerifyLaunchConfig(const base::CommandLine& command_line);
+ 
+ // The verified persona payload, or nullptr when no config was given.
+--- a/chrome/browser/vanta/launch_config.cc
++++ b/chrome/browser/vanta/launch_config.cc
+@@ -21,6 +21,7 @@
+ #include "base/no_destructor.h"
+ #include "base/version.h"
+ #include "base/version_info/version_info.h"
++#include "components/vanta/persona.h"
+ #include "third_party/boringssl/src/include/openssl/curve25519.h"
+ 
+ namespace vanta {
+@@ -110,6 +111,13 @@
+                 "persona engine version differs from " + own.GetString());
+   }
+ 
++  // 4. The persona fields every process reads (components/vanta, patch 0003).
++  // A signed payload whose persona is incomplete is a launcher bug: refuse it
++  // rather than run with the host's real fingerprint.
++  if (!InitializeBrowserPersona(*persona)) {
++    return Fail(kExitBadConfigSignature, "persona fields missing or invalid");
++  }
++
+   PersonaSlot() = std::move(persona);
+   return std::nullopt;
+ }
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -1242,6 +1242,7 @@
+     "//components/universal_optout",
+     "//components/update_client",
+     "//components/update_client:network_impl",
++    "//components/vanta",
+     "//components/variations/service",
+     "//components/visited_url_ranking/public",
+     "//components/web_resource",
+--- a/chrome/browser/DEPS
++++ b/chrome/browser/DEPS
+@@ -409,6 +409,7 @@
+   "+components/user_manager",
+   "+components/user_prefs",
+   "+components/value_store",
++  "+components/vanta",
+   "+components/vector_icons",
+   "+components/version_info",
+   "+components/visited_url_ranking",
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -215,6 +215,7 @@
+ #include "chrome/browser/universal_web_contents_observers.h"
+ #include "chrome/browser/usb/chrome_usb_delegate.h"
+ #include "chrome/browser/vr/vr_tab_helper.h"
++#include "components/vanta/persona.h"
+ #include "chrome/browser/webapps/web_app_offline.h"
+ #include "chrome/browser/webauthn/chrome_web_authentication_delegate_base.h"
+ #include "chrome/browser/webauthn/webauthn_pref_names.h"
+@@ -2982,6 +2983,10 @@
+   command_line->CopySwitchesFrom(browser_command_line,
+                                  kDinosaurEasterEggSwitches);
+ 
++  // Vanta: every child process (renderer, GPU, utility incl. the network
++  // service) gets the browser-verified persona as --vanta-persona.
++  vanta::AppendPersonaSwitch(command_line);
++
+ #if BUILDFLAG(IS_CHROMEOS)
+   // On Chrome OS need to pass primary user homedir (in multi-profiles session).
+   base::FilePath homedir;
+--- a/components/BUILD.gn
++++ b/components/BUILD.gn
+@@ -394,6 +394,7 @@
+     "//components/user_data_importer/utility:unit_tests",
+     "//components/user_education/product_messaging:unit_tests",
+     "//components/user_prefs:unit_tests",
++    "//components/vanta:unit_tests",
+     "//components/variations:unit_tests",
+     "//components/variations/field_trial_config:unit_tests",
+     "//components/variations/service:unit_tests",
