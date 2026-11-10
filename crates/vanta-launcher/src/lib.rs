@@ -29,6 +29,9 @@ use std::sync::Arc;
 use vanta_proxy::{AllowedClients, ClientAuthorizer, GuardPolicy, LaunchBlock, ProxyState};
 use vanta_types::{exit_codes, ProfileId, ProfileStatus, Result, VantaError};
 
+mod host_gpu;
+pub use host_gpu::host_gpu_vendor_id;
+
 /// A health score below this blocks launch (F03).
 pub const MIN_HEALTH_SCORE: u8 = 60;
 

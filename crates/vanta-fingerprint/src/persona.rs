@@ -177,8 +177,10 @@ impl Persona {
             locale: locale.into(),
             languages,
             geo: None,
-            canvas: SurfaceMode::Real,
-            webgl_image: SurfaceMode::Real,
+            // Noise by default: the pixels come from the host GPU, and a seeded edge
+            // perturbation keeps the per-profile canvas/WebGL hash distinct (G4).
+            canvas: SurfaceMode::Noise,
+            webgl_image: SurfaceMode::Noise,
             audio: SurfaceMode::Noise,
             canvas_seed: sub_seed(seed, "canvas"),
             audio_seed: sub_seed(seed, "audio"),
@@ -246,6 +248,9 @@ impl Persona {
     /// Chrome version is never stored separately and can never drift from the engine.
     pub fn bind_engine(&mut self, engine: EngineVersion) {
         self.engine = engine;
+        // The engine builds UA-CH brands as GREASE + "Chromium" + this brand (patch 0007),
+        // so the persona always carries real Chrome's brand.
+        self.brand = BRAND.into();
         self.user_agent = ua::user_agent(self.os, &engine);
         self.ua_ch.brands = ua::brands(&engine, &self.brand);
         self.ua_ch.full_version_list = ua::full_version_list(&engine, &self.brand);

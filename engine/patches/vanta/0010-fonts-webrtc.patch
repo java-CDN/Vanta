@@ -2,7 +2,9 @@
 # Fonts matched by name (CSS, local(), document.fonts.check, canvas) and the
 # Local Font Access list are limited to the persona's Windows font list plus a
 # small Windows baseline (components/vanta/font_allowlist.h, shared by Blink via
-# the platform/vanta adapter and by content). Fallback is not filtered.
+# the platform/vanta adapter and by content). DirectWrite system fallback may
+# only pick a persona font or a font a default Windows 10/11 install ships
+# (kWindowsFallbackFonts), never a font only this host has installed.
 # Font metrics: persona renderers run ungoogled's ClientRects/measureText noise
 # with constant factors seeded from clientrects_seed / font_seed.
 # WebRTC: with a persona the IP handling policy is forced to
@@ -41,7 +43,7 @@
    ]
 --- /dev/null
 +++ b/components/vanta/font_allowlist.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,132 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -66,8 +68,10 @@
 +// Windows font list or in kBaselineFonts. kBaselineFonts are fonts every
 +// Windows 10/11 install ships that Chromium itself names as defaults (generic
 +// families, system-ui, emoji), so blocking them would break rendering and be
-+// a tell of its own. System font fallback (glyphs a matched font lacks) is not
-+// filtered: text in any script still renders.
++// a tell of its own. System font fallback (glyphs a matched font lacks) may
++// pick a persona font or a font in kWindowsFallbackFonts (fonts a default
++// Windows 10/11 install ships for its scripts), never a font only this host
++// has installed: text in every script a default install covers still renders.
 +//
 +// Header-only so Blink (renderer) and content (Local Font Access, browser)
 +// share one definition without a new GN target.
@@ -75,6 +79,60 @@
 +    "Arial",          "Comic Sans MS",   "Consolas",
 +    "Courier New",    "Impact",          "Segoe UI",
 +    "Segoe UI Emoji", "Segoe UI Symbol", "Times New Roman",
++};
++
++// Fonts a default Windows 10/11 install (no optional "supplemental fonts")
++// ships and DirectWrite's system font fallback picks for scripts, symbols
++// and emoji.
++inline constexpr std::string_view kWindowsFallbackFonts[] = {
++    "Arial",
++    "Calibri",
++    "Cambria",
++    "Cambria Math",
++    "Courier New",
++    "Ebrima",
++    "Gadugi",
++    "Javanese Text",
++    "Leelawadee UI",
++    "Lucida Sans Unicode",
++    "Malgun Gothic",
++    "Marlett",
++    "Meiryo",
++    "Meiryo UI",
++    "Microsoft Himalaya",
++    "Microsoft JhengHei",
++    "Microsoft JhengHei UI",
++    "Microsoft New Tai Lue",
++    "Microsoft PhagsPa",
++    "Microsoft Sans Serif",
++    "Microsoft Tai Le",
++    "Microsoft YaHei",
++    "Microsoft YaHei UI",
++    "Microsoft Yi Baiti",
++    "MingLiU-ExtB",
++    "Mongolian Baiti",
++    "MS Gothic",
++    "MS PGothic",
++    "MS UI Gothic",
++    "MV Boli",
++    "Myanmar Text",
++    "Nirmala UI",
++    "NSimSun",
++    "Segoe MDL2 Assets",
++    "Segoe UI",
++    "Segoe UI Emoji",
++    "Segoe UI Historic",
++    "Segoe UI Symbol",
++    "SimSun",
++    "SimSun-ExtB",
++    "Sylfaen",
++    "Symbol",
++    "Tahoma",
++    "Times New Roman",
++    "Webdings",
++    "Wingdings",
++    "Yu Gothic",
++    "Yu Gothic UI",
 +};
 +
 +// True when no persona (or no font list) is set, or `family` is allowed.
@@ -99,6 +157,20 @@
 +    return true;
 +  }
 +  return (*allowed)->contains(base::ToLowerASCII(family));
++}
++
++// System font fallback: true when `family` is allowed by name, or a font a
++// default Windows install uses for fallback. Same conditions as above.
++inline bool IsFallbackFontAllowed(std::string_view family) {
++  if (IsFontFamilyAllowed(family)) {
++    return true;
++  }
++  for (std::string_view name : kWindowsFallbackFonts) {
++    if (base::EqualsCaseInsensitiveASCII(name, family)) {
++      return true;
++    }
++  }
++  return false;
 +}
 +
 +}  // namespace vanta
@@ -248,12 +320,16 @@
    return s;
  }
  
-@@ -56,4 +70,8 @@
+@@ -56,4 +70,12 @@
    return surfaces->has_value() ? &surfaces->value() : nullptr;
  }
  
 +bool IsFontFamilyAllowed(std::string_view family) {
 +  return ::vanta::IsFontFamilyAllowed(family);
++}
++
++bool IsFallbackFontAllowed(std::string_view family) {
++  return ::vanta::IsFallbackFontAllowed(family);
 +}
 +
  }  // namespace blink::vanta_surfaces
@@ -267,7 +343,7 @@
  
  #include "third_party/blink/renderer/platform/platform_export.h"
  
-@@ -38,12 +39,23 @@
+@@ -38,12 +39,28 @@
    std::string timezone;
    // BCP 47 default locale for ICU / V8 Intl (patch 0009); empty: unchanged.
    std::string locale;
@@ -287,6 +363,11 @@
 +// there is no persona or the family is in its Windows font list
 +// (components/vanta/font_allowlist.h). Safe to call from any thread.
 +PLATFORM_EXPORT bool IsFontFamilyAllowed(std::string_view family);
++
++// System font fallback (patch 0010): true when `family` is allowed above or
++// is a font a default Windows 10/11 install falls back to
++// (components/vanta/font_allowlist.h). Safe to call from any thread.
++PLATFORM_EXPORT bool IsFallbackFontAllowed(std::string_view family);
 +
  // SplitMix64 finalizer: the one mixing function every Vanta noise uses, so
  // equal inputs give equal noise in every process and on every thread.
@@ -326,7 +407,7 @@
  #include "third_party/blink/renderer/platform/wtf/casting.h"
  #include "third_party/blink/renderer/platform/wtf/forward.h"
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-@@ -1271,6 +1272,13 @@
+@@ -1294,6 +1295,13 @@
        font, direction, state.GetTextBaseline(), state.GetTextAlign(), text,
        host->GetPlainTextPainter());
  
@@ -342,14 +423,14 @@
      if (HostAsOffscreenCanvas()) {
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -340,6 +340,7 @@
+@@ -339,6 +339,7 @@
  #include "components/supervised_user/core/common/features.h"
  #include "components/sync_tab_context/http_rpc_constants.h"
  #include "components/translate/core/common/translate_switches.h"
 +#include "components/ungoogled/ungoogled_switches.h"
  #include "components/user_prefs/user_prefs.h"
+ #include "components/vanta/persona.h"
  #include "components/variations/variations_associated_data.h"
- #include "components/variations/variations_switches.h"
 @@ -2986,6 +2987,13 @@
    // Vanta: every child process (renderer, GPU, utility incl. the network
    // service) gets the browser-verified persona as --vanta-persona.
@@ -364,3 +445,35 @@
  
  #if BUILDFLAG(IS_CHROMEOS)
    // On Chrome OS need to pass primary user homedir (in multi-profiles session).
+--- a/third_party/blink/renderer/platform/fonts/win/font_cache_skia_win.cc
++++ b/third_party/blink/renderer/platform/fonts/win/font_cache_skia_win.cc
+@@ -35,6 +35,7 @@
+ 
+ #include <memory>
+ #include <string>
++#include <string_view>
+ #include <utility>
+ 
+ #include "base/debug/alias.h"
+@@ -54,6 +55,7 @@
+ #include "third_party/blink/renderer/platform/language.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/text/layout_locale.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+ #include "third_party/blink/renderer/platform/wtf/wtf.h"
+@@ -244,6 +246,13 @@
+ 
+   SkString skia_family;
+   typeface->getFamilyName(&skia_family);
++  // Vanta (patch 0010): fallback may only pick a persona font or one a
++  // default Windows install ships, never a font only this host has; else
++  // the last-resort font renders the character, as on a default install.
++  if (!vanta_surfaces::IsFallbackFontAllowed(
++          std::string_view(skia_family.c_str(), skia_family.size()))) {
++    return nullptr;
++  }
+   FontDescription fallback_updated_font_description(font_description);
+   fallback_updated_font_description.UpdateFromSkiaFontStyle(
+       typeface->fontStyle());

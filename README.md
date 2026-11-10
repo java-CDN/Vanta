@@ -69,6 +69,16 @@ the app with demo data; the demo password is anything non-empty except `wrong`.
 `crates/vanta-fingerprint/src/rules.rs` defines exactly 30 rules. A **Fail** blocks launch; a
 **Note** is informational.
 
+Besides C001–C030, the launch gate **G001** (native GPU family,
+`rules::host_gpu_gate`) blocks a persona whose GPU maker differs from the host's
+default adapter (DXGI adapter 0; override `VANTA_HOST_GPU_VENDOR`), because canvas,
+WebGL and WebGPU render on the host GPU. New personas are drawn only from device
+records of the host's GPU maker (`crates/vanta-fingerprint/data/devices.json`, 76
+Windows 10/11 desktop and laptop records across NVIDIA, AMD and Intel; records marked
+`composed-public-specs` are assembled from public specifications (GPU PCI ids, the ANGLE
+Direct3D11 string format, Windows taskbar sizes and scaling steps), not captured from live
+browsers).
+
 | Rule | Check |
 |------|-------|
 | C001 | UA carries the frozen Windows token `Windows NT 10.0; Win64; x64` |

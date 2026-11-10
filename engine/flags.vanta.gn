@@ -14,11 +14,16 @@ symbol_level=0
 blink_symbol_level=0
 v8_symbol_level=0
 
-# D5: proprietary codecs (H.264/AAC) off by default; no Widevine.
-# flags.windows.gn turns codecs on, so all three are overridden here.
-proprietary_codecs=false
-ffmpeg_branding="Chromium"
-enable_mse_mpeg2ts_stream_parser=false
+# D5 (revised 2026-11-10): proprietary codecs on, as in Google Chrome for
+# Windows, so canPlayType / MediaSource.isTypeSupported / MediaCapabilities
+# answer H.264 and AAC like Chrome does (flags.windows.gn sets the same;
+# pinned here, together with its enable_mse_mpeg2ts_stream_parser=true).
+# H.264/AAC patent licensing is the distributor's responsibility
+# (engine/README.md). No Widevine: the CDM is a Google component that cannot
+# be shipped, so com.widevine.alpha stays unavailable.
+proprietary_codecs=true
+ffmpeg_branding="Chrome"
+enable_mse_mpeg2ts_stream_parser=true
 enable_widevine=false
 
 # Version stays exactly engine/VERSION (R5 version lock).

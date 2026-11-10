@@ -2,15 +2,18 @@
 # OfflineAudioContext's rendered AudioBuffer is noised once, before the
 # complete event / promise hands it to script, so getChannelData() and
 # copyFromChannel() read the same stable data and buffers script fills itself
-# are never touched. AnalyserNode getFloatFrequencyData/getFloatTimeDomainData
-# are noised on readout. Lowest 3 mantissa bits from (seed, stream, index,
-# kept bits); zeros, infinities and round floats stay exact; idempotent.
-# Mode Block: the same readouts return silence (all samples 0).
+# are never touched. AnalyserNode float getters are noised on readout and the
+# byte getters are the bytes of the noised floats (RealtimeAnalyser's own
+# scaling), so float and byte reads agree. Realtime taps: ScriptProcessor
+# input buffers (onaudioprocess) and AudioWorklet process() inputs. Lowest 3
+# mantissa bits from (seed, stream, index, kept bits); zeros, infinities and
+# round floats stay exact; idempotent. Mode Block: the same readouts return
+# silence (samples 0, spectrum -Infinity dB, bytes of silence).
 # Needs 0004 (platform/vanta/vanta_persona.h).
 
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/audio_noise.h
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,41 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -37,16 +40,24 @@
 +PLATFORM_EXPORT void ApplyAudioNoise(base::span<float> samples,
 +                                     uint64_t stream);
 +
++// True when Web Audio readouts are changed (mode Noise or Block).
++PLATFORM_EXPORT bool AudioReadoutChanged();
++// True in mode Block.
++PLATFORM_EXPORT bool AudioBlocked();
++
 +// Streams: AudioBuffer channels use their channel index.
 +inline constexpr uint64_t kAnalyserFrequencyStream = 0x100;
 +inline constexpr uint64_t kAnalyserTimeDomainStream = 0x101;
++// Realtime graph taps, plus the channel index.
++inline constexpr uint64_t kScriptProcessorInputStream = 0x200;
++inline constexpr uint64_t kAudioWorkletInputStream = 0x300;
 +
 +}  // namespace blink::vanta_surfaces
 +
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_AUDIO_NOISE_H_
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/audio_noise.cc
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,54 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -61,6 +72,16 @@
 +#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
 +
 +namespace blink::vanta_surfaces {
++
++bool AudioReadoutChanged() {
++  const PersonaSurfaces* persona = GetPersonaSurfaces();
++  return persona && (persona->audio_block || persona->audio_noise_seed);
++}
++
++bool AudioBlocked() {
++  const PersonaSurfaces* persona = GetPersonaSurfaces();
++  return persona && persona->audio_block;
++}
 +
 +void ApplyAudioNoise(base::span<float> samples, uint64_t stream) {
 +  const PersonaSurfaces* persona = GetPersonaSurfaces();
@@ -128,32 +149,65 @@
      DispatchEvent(*OfflineAudioCompletionEvent::Create(rendered_buffer));
 --- a/third_party/blink/renderer/modules/webaudio/analyser_node.cc
 +++ b/third_party/blink/renderer/modules/webaudio/analyser_node.cc
-@@ -25,10 +25,13 @@
+@@ -25,10 +25,16 @@
  
  #include "third_party/blink/renderer/modules/webaudio/analyser_node.h"
  
 +#include <algorithm>
++#include <climits>
++#include <limits>
 +
  #include "third_party/blink/renderer/bindings/modules/v8/v8_analyser_options.h"
  #include "third_party/blink/renderer/modules/webaudio/analyser_handler.h"
  #include "third_party/blink/renderer/modules/webaudio/audio_graph_tracer.h"
  #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
 +#include "third_party/blink/renderer/platform/vanta/audio_noise.h"
++#include "third_party/blink/renderer/platform/wtf/math_extras.h"
  
  namespace blink {
  
-@@ -126,6 +129,10 @@
+@@ -126,19 +132,67 @@
  void AnalyserNode::getFloatFrequencyData(NotShared<DOMFloat32Array> array) {
    GetAnalyserHandler().GetFloatFrequencyData(array.Get(),
                                               context()->currentTime());
-+  vanta_surfaces::ApplyAudioNoise(
-+      array->AsSpan().first(
-+          std::min<size_t>(array->length(), frequencyBinCount())),
-+      vanta_surfaces::kAnalyserFrequencyStream);
++  base::span<float> bins = array->AsSpan().first(
++      std::min<size_t>(array->length(), frequencyBinCount()));
++  if (vanta_surfaces::AudioBlocked()) {
++    // Silence in decibels.
++    std::ranges::fill(bins, -std::numeric_limits<float>::infinity());
++    return;
++  }
++  vanta_surfaces::ApplyAudioNoise(bins,
++                                  vanta_surfaces::kAnalyserFrequencyStream);
  }
  
  void AnalyserNode::getByteFrequencyData(NotShared<DOMUint8Array> array) {
-@@ -135,6 +142,9 @@
+-  GetAnalyserHandler().GetByteFrequencyData(array.Get(),
+-                                            context()->currentTime());
++  if (!vanta_surfaces::AudioReadoutChanged()) {
++    GetAnalyserHandler().GetByteFrequencyData(array.Get(),
++                                              context()->currentTime());
++    return;
++  }
++  // Vanta (patch 0006): the bytes of the noised float spectrum, scaled as
++  // RealtimeAnalyser::GetByteFrequencyData does, so byte and float reads
++  // of the same frame agree.
++  const size_t len = std::min<size_t>(array->length(), frequencyBinCount());
++  NotShared<DOMFloat32Array> decibels(DOMFloat32Array::Create(len));
++  getFloatFrequencyData(decibels);
++  const double min_decibels = minDecibels();
++  const double max_decibels = maxDecibels();
++  const double range_scale_factor =
++      max_decibels == min_decibels ? 1.0 : 1.0 / (max_decibels - min_decibels);
++  base::span<const float> source = decibels->AsSpan();
++  base::span<uint8_t> destination = array->AsSpan();
++  for (size_t i = 0; i < len; ++i) {
++    const double scaled_value =
++        UCHAR_MAX * (source[i] - min_decibels) * range_scale_factor;
++    destination[i] =
++        static_cast<uint8_t>(ClampTo(scaled_value, 0, UCHAR_MAX));
++  }
+ }
  
  void AnalyserNode::getFloatTimeDomainData(NotShared<DOMFloat32Array> array) {
    GetAnalyserHandler().GetFloatTimeDomainData(array.Get());
@@ -163,3 +217,75 @@
  }
  
  void AnalyserNode::getByteTimeDomainData(NotShared<DOMUint8Array> array) {
+-  GetAnalyserHandler().GetByteTimeDomainData(array.Get());
++  if (!vanta_surfaces::AudioReadoutChanged()) {
++    GetAnalyserHandler().GetByteTimeDomainData(array.Get());
++    return;
++  }
++  // Vanta (patch 0006): the bytes of the noised float samples, scaled as
++  // RealtimeAnalyser::GetByteTimeDomainData does.
++  const size_t len = std::min<size_t>(array->length(), fftSize());
++  NotShared<DOMFloat32Array> samples(DOMFloat32Array::Create(len));
++  getFloatTimeDomainData(samples);
++  base::span<const float> source = samples->AsSpan();
++  base::span<uint8_t> destination = array->AsSpan();
++  for (size_t i = 0; i < len; ++i) {
++    const double scaled_value = 128 * (source[i] + 1);
++    destination[i] =
++        static_cast<uint8_t>(ClampTo(scaled_value, 0, UCHAR_MAX));
++  }
+ }
+ 
+ void AnalyserNode::ReportDidCreate() {
+--- a/third_party/blink/renderer/modules/webaudio/script_processor_handler.cc
++++ b/third_party/blink/renderer/modules/webaudio/script_processor_handler.cc
+@@ -25,6 +25,7 @@
+ #include "third_party/blink/renderer/modules/webaudio/script_processor_node.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
++#include "third_party/blink/renderer/platform/vanta/audio_noise.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+ #include "third_party/blink/renderer/platform/wtf/text/strcat.h"
+@@ -173,6 +174,12 @@
+ 
+     if (number_of_input_channels_) {
+       internal_input_bus_->CopyFrom(*input_bus);
++      // Vanta (patch 0006): seeded noise on what onaudioprocess reads.
++      for (uint32_t i = 0; i < number_of_input_channels_; ++i) {
++        vanta_surfaces::ApplyAudioNoise(
++            internal_input_bus_->Channel(i)->MutableSpan(),
++            vanta_surfaces::kScriptProcessorInputStream + i);
++      }
+     }
+ 
+     for (uint32_t i = 0; i < number_of_output_channels_; ++i) {
+--- a/third_party/blink/renderer/modules/webaudio/audio_worklet_processor.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_worklet_processor.cc
+@@ -23,6 +23,7 @@
+ #include "third_party/blink/renderer/platform/audio/denormal_disabler.h"
+ #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
++#include "third_party/blink/renderer/platform/vanta/audio_noise.h"
+ 
+ namespace blink {
+ 
+@@ -221,10 +222,14 @@
+                                .Get(isolate)
+                                ->GetBackingStore();
+       DCHECK_EQ(backing_store->ByteLength(), bus_length * sizeof(float));
+-      base::subtle::reinterpret_span<float>(
+-          ArrayBufferContents(std::move(backing_store)).ByteSpan())
+-          .first(bus_length)
+-          .copy_from(audio_bus->Channel(channel_index)->Span());
++      ArrayBufferContents contents(std::move(backing_store));
++      base::span<float> channel =
++          base::subtle::reinterpret_span<float>(contents.ByteSpan())
++              .first(bus_length);
++      channel.copy_from(audio_bus->Channel(channel_index)->Span());
++      // Vanta (patch 0006): seeded noise on what process() reads in inputs.
++      vanta_surfaces::ApplyAudioNoise(
++          channel, vanta_surfaces::kAudioWorkletInputStream + channel_index);
+     }
+   }
+ }

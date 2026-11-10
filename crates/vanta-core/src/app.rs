@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinHandle;
 use vanta_fingerprint::config::{pubkey_b64, sign_launch, LaunchBinding};
-use vanta_fingerprint::device::builtin;
+use vanta_fingerprint::device::{builtin, GpuFamily};
 use vanta_fingerprint::Persona;
 use vanta_health::{evaluate, ExitInfo, GuardSnapshot, HealthInput, HealthLab, LeakWatch, Outcome};
 use vanta_launcher::{
@@ -77,6 +77,22 @@ pub struct AppConfig {
     pub ip_info_url: EchoUrl,
     /// Speed test download for the Proxy Hub check (through the proxy, capped).
     pub speed_test_url: EchoUrl,
+    /// GPU maker of the host's default adapter (native-family selection): new personas
+    /// only claim GPUs of this family, and a persona of another family is blocked at
+    /// launch (gate G001). `None` = unknown, nothing is filtered or blocked.
+    pub host_gpu: Option<GpuFamily>,
+}
+
+/// Host GPU family: `VANTA_HOST_GPU_VENDOR` (nvidia | amd | intel | qualcomm) when set,
+/// else DXGI adapter 0 (Windows), else unknown.
+pub fn detect_host_gpu() -> Option<GpuFamily> {
+    if let Some(f) = std::env::var("VANTA_HOST_GPU_VENDOR")
+        .ok()
+        .and_then(|v| GpuFamily::parse(&v))
+    {
+        return Some(f);
+    }
+    vanta_launcher::host_gpu_vendor_id().and_then(GpuFamily::from_pci_vendor)
 }
 
 impl AppConfig {
@@ -92,6 +108,7 @@ impl AppConfig {
             ip_echo_url: EchoUrl::default(),
             ip_info_url: EchoUrl::parse(DEFAULT_IP_INFO_URL).expect("valid default"),
             speed_test_url: EchoUrl::parse(DEFAULT_SPEED_TEST_URL).expect("valid default"),
+            host_gpu: detect_host_gpu(),
         }
     }
 }
@@ -542,7 +559,11 @@ impl VantaApp {
     fn new_persona(&self, os: Option<OsKind>, locale: &str, seed: u64) -> CoreResult<Persona> {
         Ok(Persona::generate(
             &builtin(),
-            |d| !matches!(os, Some(o) if d.os_kind().ok() != Some(o)),
+            |d| {
+                let host = self.inner.cfg.host_gpu;
+                !matches!(os, Some(o) if d.os_kind().ok() != Some(o))
+                    && !matches!(host, Some(h) if d.gpu.family() != Some(h))
+            },
             self.inner.cfg.engine.version,
             seed,
             locale,
@@ -1314,6 +1335,11 @@ impl VantaApp {
         let mut rule_problem = None;
         if let Err(e) = vanta_fingerprint::config::preflight(&p.persona, engine) {
             rule_problem = Some(e.to_string());
+        }
+        // Native family: the persona's GPU maker must be the host's (G001).
+        let host_gpu = vanta_fingerprint::rules::host_gpu_gate(&p.persona, self.inner.cfg.host_gpu);
+        if rule_problem.is_none() && host_gpu.level == vanta_fingerprint::rules::Level::Fail {
+            rule_problem = Some(format!("{} {}", host_gpu.id, host_gpu.message));
         }
 
         // F04: proxy online and freshly checked; re-check when it is not.

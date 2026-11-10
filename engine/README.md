@@ -51,10 +51,19 @@ domain substitution.
 ## GN flags (`flags.vanta.gn`)
 
 Release build (`is_official_build`, no debug or component build, `symbol_level=0`).
-D5: `proprietary_codecs=false` and `ffmpeg_branding="Chromium"`. Because
-`flags.windows.gn` turns codecs on, `enable_mse_mpeg2ts_stream_parser` is also
-set to false, since Chromium asserts that it needs proprietary codecs. No
-Widevine. `use_unofficial_version_number=false` keeps the version equal to
+D5 (revised): `proprietary_codecs=true` and `ffmpeg_branding="Chrome"`
+(H.264, AAC, MP4/MSE and `enable_mse_mpeg2ts_stream_parser=true`, the same as
+`flags.windows.gn`), so `canPlayType`, `MediaSource.isTypeSupported` and
+MediaCapabilities answer like Google Chrome on Windows. No Widevine
+(`enable_widevine=false`): the Widevine CDM is a Google-licensed component
+that Vanta cannot ship, so `requestMediaKeySystemAccess("com.widevine.alpha")`
+rejects, unlike Chrome; this is a known, documented difference.
+
+**Patent licensing.** H.264 and AAC are patent-encumbered. Shipping a build
+with `proprietary_codecs=true` / `ffmpeg_branding="Chrome"` may require patent
+licences (for example the Via LA H.264/AVC and AAC pools) in some
+jurisdictions; obtaining them is the distributor's responsibility, not
+something the Vanta sources or CI provide. `use_unofficial_version_number=false` keeps the version equal to
 `VERSION`. The file has no NaCl flag: NaCl is gone from Chromium 156, and
 `gn gen --fail-on-unused-args` would reject it.
 

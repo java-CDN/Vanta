@@ -4,9 +4,12 @@
 # power of two in [2, 32] like Chrome 156 desktop); UA-CH platformVersion
 # (navigator.userAgentData + Sec-CH-UA-Platform-Version, Win10 "10.0.0" vs
 # Win11 >= "13.0.0" as the persona says); navigator.languages and
-# Accept-Language from the same persona list. The User-Agent string and UA-CH
-# brands stay the engine's own reduced Chrome 156 Windows values (R14);
-# navigator.platform is already "Win32" on Windows. No persona: unchanged.
+# Accept-Language from the same persona list. The User-Agent string stays the
+# engine's own reduced Chrome 156 Windows value (R14); the UA-CH brand list
+# gains the persona brand ("Google Chrome") next to GREASE and "Chromium", in
+# Chrome's seeded order with the engine's major/full version, exactly as real
+# Chrome 156 and vanta-fingerprint's ua.rs; navigator.platform is already
+# "Win32" on Windows. No persona: unchanged.
 
 --- a/chrome/browser/net/BUILD.gn
 +++ b/chrome/browser/net/BUILD.gn
@@ -100,7 +103,22 @@
  #include "components/version_info/version_info.h"
  #include "net/http/http_util.h"
  #include "third_party/blink/public/common/features.h"
-@@ -619,6 +620,13 @@
+@@ -166,6 +167,14 @@
+ #if !BUILDFLAG(CHROMIUM_BRANDING)
+   brand = version_info::GetProductName();
+ #endif
++  // Vanta (patch 0007): with a persona, the brand list is real Chrome's for
++  // this engine version: GREASE, "Chromium" and the persona's brand
++  // ("Google Chrome"), in Chrome's seeded order, major/full version from
++  // the engine. Matches vanta-fingerprint's port (ua.rs) entry for entry.
++  if (const vanta::Persona* persona = vanta::GetPersona();
++      persona && !persona->brand.empty()) {
++    brand = persona->brand;
++  }
+ 
+   std::string brand_version =
+       output_version_type == blink::UserAgentBrandVersionType::kFullVersion
+@@ -619,6 +628,13 @@
  #endif
  
  #if BUILDFLAG(IS_WIN)

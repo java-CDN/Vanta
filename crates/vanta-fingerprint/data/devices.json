@@ -601,5 +601,4494 @@
    "audiooutput": 1,
    "videoinput": 2
   }
+ },
+ {
+  "id": "win10-gtx1050ti-1080p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 4,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "pascal"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1060-1080p",
+  "source": "composed-public-specs",
+  "weight": 7,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 6,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB (0x00001C03) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "pascal"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-gtx1060-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB (0x00001C03) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "pascal"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1070-1440p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1400,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1070 (0x00001B81) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "pascal"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1080-1440p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1400,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 (0x00001B80) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "pascal"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1650-1080p",
+  "source": "composed-public-specs",
+  "weight": 6,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 6,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 (0x00001F82) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-gtx1650super-1080p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 SUPER (0x00002187) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1660-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 (0x00002184) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-gtx1660super-1080p",
+  "source": "composed-public-specs",
+  "weight": 6,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER (0x000021C4) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1660ti-1080p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti (0x00002182) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-rtx2060-1080p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 (0x00001F08) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx2060super-1440p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx2070super-1440p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 SUPER (0x00001E84) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-rtx2080ti-1440p",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1400,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 Ti (0x00001E07) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3050-1080p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 (0x00002507) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3060-1080p",
+  "source": "composed-public-specs",
+  "weight": 10,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-rtx3060ti-1440p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1400,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti (0x00002489) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3060ti-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti (0x00002489) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3070-1440p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002488) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3070ti-1440p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Ti (0x00002482) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3080-uw",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 3440,
+   "height": 1440,
+   "avail_width": 3440,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 (0x00002206) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx3090-4k",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 32,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3090 (0x00002204) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4060-1080p",
+  "source": "composed-public-specs",
+  "weight": 9,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4060ti-1440p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Ti (0x00002803) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4070super-1440p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4070ti-uw",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 3440,
+   "height": 1440,
+   "avail_width": 3440,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 24,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4080-4k",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 24,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 (0x00002704) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rtx4090-4k",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 32,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4090 (0x00002684) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-gtx1650ti-laptop",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Ti (0x00001F95) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "turing"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-rtx3050-laptop",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 816,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 Laptop GPU (0x000025A2) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-rtx3060-laptop",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2048,
+   "height": 1152,
+   "avail_width": 2048,
+   "avail_height": 1104,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU (0x00002520) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "ampere"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-rtx4050-laptop",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 960,
+   "avail_width": 1536,
+   "avail_height": 912,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4050 Laptop GPU (0x000028A1) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-rtx4060-laptop",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1707,
+   "height": 1067,
+   "avail_width": 1707,
+   "avail_height": 1019,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (NVIDIA)",
+   "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU (0x000028A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "nvidia",
+   "webgpu_arch": "lovelace"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-hd520-768p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1366,
+   "height": 768,
+   "avail_width": 1366,
+   "avail_height": 728,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 4,
+  "device_memory": 4,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) HD Graphics 520 (0x00001916) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-hd620-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 4,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) HD Graphics 620 (0x00005916) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-hd530-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) HD Graphics 530 (0x00001912) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-uhd620-1080p",
+  "source": "composed-public-specs",
+  "weight": 6,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 816,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-uhd630-1080p",
+  "source": "composed-public-specs",
+  "weight": 6,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 6,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-uhd630-1080p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-9"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-irisplus-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Iris(R) Plus Graphics (0x00008A52) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-11"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-irisxe-tgl-1080p",
+  "source": "composed-public-specs",
+  "weight": 8,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 816,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-irisxe-tgl-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-uhd-tgl-768p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1366,
+   "height": 768,
+   "avail_width": 1366,
+   "avail_height": 720,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 4,
+  "device_memory": 4,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x00009A78) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-irisxe-adl-1200",
+  "source": "composed-public-specs",
+  "weight": 7,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 960,
+   "avail_width": 1536,
+   "avail_height": 912,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-irisxe-adlh-1440",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1707,
+   "height": 960,
+   "avail_width": 1707,
+   "avail_height": 912,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-uhd730-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 730 (0x00004692) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-uhd770-rpl-1440p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x0000A780) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-uhd-n100-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 4,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x000046D1) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12lp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-arca770-1440p",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 20,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics (0x000056A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12hp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-arca750-1080p",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Arc(TM) A750 Graphics (0x000056A1) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "gen-12hp"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-arc-mtl-1200",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 960,
+   "avail_width": 1536,
+   "avail_height": 912,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 22,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (Intel)",
+   "renderer": "ANGLE (Intel, Intel(R) Arc(TM) Graphics (0x00007D55) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "intel",
+   "webgpu_arch": "xe-lpg"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-rx580-1080p",
+  "source": "composed-public-specs",
+  "weight": 5,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, Radeon RX 580 Series (0x000067DF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "gcn-4"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-rx570-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1040,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 6,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, Radeon RX 570 Series (0x000067DF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "gcn-4"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-rx5700xt-1440p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1400,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 5700 XT (0x0000731F) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-1"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx6600-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 6600 (0x000073FF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx6650xt-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 6650 XT (0x000073EF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx6700xt-1440p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 6700 XT (0x000073DF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx6800xt-1440p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 6800 XT (0x000073BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx7600-1080p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 7600 (0x00007480) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-3"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx7800xt-1440p",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 7800 XT (0x0000747E) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-3"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win11-rx7900xtx-4k",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 2560,
+   "height": 1440,
+   "avail_width": 2560,
+   "avail_height": 1392,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 32,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon RX 7900 XTX (0x0000744C) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-3"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
+ },
+ {
+  "id": "win10-vega8-1080p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon(TM) Vega 8 Graphics (0x000015D8) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "gcn-5"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win10-renoir-1080p",
+  "source": "composed-public-specs",
+  "weight": 3,
+  "os": "windows",
+  "os_version": "10",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "10.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 824,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 6,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "gcn-5"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-cezanne-1080p",
+  "source": "composed-public-specs",
+  "weight": 4,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "15.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 864,
+   "avail_width": 1536,
+   "avail_height": 816,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001638) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "gcn-5"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-rembrandt-1200",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1536,
+   "height": 960,
+   "avail_width": 1536,
+   "avail_height": 912,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.25,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001681) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-780m-1600",
+  "source": "composed-public-specs",
+  "weight": 2,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1707,
+   "height": 1067,
+   "avail_width": 1707,
+   "avail_height": 1019,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.5,
+  "hardware_concurrency": 16,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon 780M Graphics (0x000015BF) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-3"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 1,
+   "videoinput": 1
+  }
+ },
+ {
+  "id": "win11-raphael-igpu-1080p",
+  "source": "composed-public-specs",
+  "weight": 1,
+  "os": "windows",
+  "os_version": "11",
+  "platform": "Win32",
+  "browser_major": 156,
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+  "ua_ch": {
+   "platform_version": "19.0.0",
+   "architecture": "x86",
+   "bitness": "64",
+   "model": "",
+   "wow64": false,
+   "form_factors": [
+    "Desktop"
+   ]
+  },
+  "screen": {
+   "width": 1920,
+   "height": 1080,
+   "avail_width": 1920,
+   "avail_height": 1032,
+   "color_depth": 24
+  },
+  "device_pixel_ratio": 1.0,
+  "hardware_concurrency": 12,
+  "device_memory": 8,
+  "max_touch_points": 0,
+  "gpu": {
+   "vendor": "Google Inc. (AMD)",
+   "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x0000164E) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+   "webgpu_vendor": "amd",
+   "webgpu_arch": "rdna-2"
+  },
+  "fonts": [
+   "Arial",
+   "Calibri",
+   "Cambria",
+   "Candara",
+   "Comic Sans MS",
+   "Consolas",
+   "Courier New",
+   "Ebrima",
+   "Gadugi",
+   "Georgia",
+   "Impact",
+   "Lucida Console",
+   "MS Gothic",
+   "Marlett",
+   "Palatino Linotype",
+   "Segoe UI",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Sylfaen",
+   "Tahoma",
+   "Times New Roman",
+   "Trebuchet MS",
+   "Verdana"
+  ],
+  "media_devices": {
+   "audioinput": 1,
+   "audiooutput": 2,
+   "videoinput": 0
+  }
  }
 ]

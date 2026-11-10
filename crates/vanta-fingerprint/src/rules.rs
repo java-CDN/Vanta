@@ -2,6 +2,7 @@
 //! Personas are Windows 10/11 desktops only (R1). C018 = timezone vs exit country (F07),
 //! C025 = rarity note, C030 = version lock to the installed engine (R5).
 
+use crate::device::GpuFamily;
 use crate::persona::{Persona, SurfaceMode};
 use crate::ua::WINDOWS_UA_TOKEN;
 use serde::Serialize;
@@ -41,20 +42,7 @@ fn note(id: &'static str, msg: impl Into<String>) -> RuleResult {
 
 /// GPU maker named by a WebGL vendor / renderer / WebGPU vendor string.
 fn gpu_brand(s: &str) -> Option<&'static str> {
-    let l = s.to_lowercase();
-    for (k, v) in [
-        ("nvidia", "nvidia"),
-        ("amd", "amd"),
-        ("radeon", "amd"),
-        ("intel", "intel"),
-        ("qualcomm", "qualcomm"),
-        ("adreno", "qualcomm"),
-    ] {
-        if l.contains(k) {
-            return Some(v);
-        }
-    }
-    None
+    GpuFamily::from_gpu_string(s).map(GpuFamily::as_str)
 }
 
 /// Software rasterizers: a real Windows desktop never reports these.
@@ -261,7 +249,9 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
     ));
 
     // --- Hardware ----------------------------------------------------------------
-    const CORES: [u32; 12] = [2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32];
+    // Logical processors of real desktop/laptop CPUs (18 and 22: e.g. Core Ultra
+    // 5 125H / 7 155H).
+    const CORES: [u32; 14] = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 28, 32];
     out.push(r(
         "C014",
         CORES.contains(&p.hardware_concurrency),
@@ -448,6 +438,33 @@ pub fn check(p: &Persona, installed_engine: EngineVersion) -> Vec<RuleResult> {
     out
 }
 
+/// Native-family gate (launch only, outside C001–C030): canvas, WebGL and WebGPU render
+/// on the host GPU, so a persona that claims another GPU maker than the host's would show
+/// one maker in its strings and another in its pixels and limits. `host` = the family of
+/// the host's default adapter (DXGI adapter 0, the one ANGLE uses); `None` when it could
+/// not be detected (non-Windows developer host, software adapter), which cannot be
+/// verified and does not block.
+pub fn host_gpu_gate(p: &Persona, host: Option<GpuFamily>) -> RuleResult {
+    let claimed = p.gpu.family();
+    match host {
+        None => note(
+            "G001",
+            "host GPU vendor unknown; persona GPU family not verified against the host",
+        ),
+        Some(h) => r(
+            "G001",
+            claimed == Some(h),
+            "Persona GPU vendor = host GPU vendor",
+            format!(
+                "persona GPU '{}' is not a {} GPU like this PC's; canvas/WebGL would render \
+                 on the host GPU. Regenerate the fingerprint.",
+                p.gpu.renderer,
+                h.as_str()
+            ),
+        ),
+    }
+}
+
 pub fn failures(results: &[RuleResult]) -> Vec<&RuleResult> {
     results.iter().filter(|r| r.level == Level::Fail).collect()
 }
@@ -483,6 +500,23 @@ mod tests {
 
     fn fails(p: &Persona) -> Vec<&'static str> {
         failures(&check(p, V)).iter().map(|r| r.id).collect()
+    }
+
+    #[test]
+    fn host_gpu_gate_blocks_foreign_family() {
+        let p = win();
+        let fam = p.gpu.family().expect("builtin GPU has a family");
+        assert_eq!(host_gpu_gate(&p, Some(fam)).level, Level::Pass);
+        assert_eq!(host_gpu_gate(&p, None).level, Level::Note);
+        for other in [GpuFamily::Nvidia, GpuFamily::Amd, GpuFamily::Intel] {
+            if other != fam {
+                assert_eq!(host_gpu_gate(&p, Some(other)).level, Level::Fail);
+            }
+        }
+        assert_eq!(GpuFamily::from_pci_vendor(0x10DE), Some(GpuFamily::Nvidia));
+        assert_eq!(GpuFamily::from_pci_vendor(0x1002), Some(GpuFamily::Amd));
+        assert_eq!(GpuFamily::from_pci_vendor(0x8086), Some(GpuFamily::Intel));
+        assert_eq!(GpuFamily::from_pci_vendor(0x1414), None);
     }
 
     #[test]

@@ -9,9 +9,17 @@ Series order: 0001 … 0006, then 0007, 0008, 0009, 0010.
 Rules kept: Windows 10/11 personas only; all spoofing in engine C++ (no JS
 injection, R10); every change is gated on `GetPersona() != nullptr`, so an
 engine started without `--vanta-config` is plain Chromium. The User-Agent
-string and UA-CH brands/full version list stay the engine's own reduced
-Chrome 156 Windows values (R14): `Persona::user_agent` and `ua_ch.brands` are
-not applied.
+string stays the engine's own reduced Chrome 156 Windows value (R14) and
+`Persona::user_agent` / `ua_ch.brands` are not applied as strings. The UA-CH
+brand list is built by the engine from its own version, as in Google Chrome:
+GREASE, `"Chromium"` and the persona `brand` (always `"Google Chrome"`),
+in Chrome's order seeded by the major version
+(`components/embedder_support/user_agent_utils.cc`, `GetUserAgentBrandList`).
+Since 2026-11-10 this replaces ungoogled's Chromium-branded two-entry list
+(GREASE + "Chromium"), which contradicted the persona; `navigator.userAgentData
+.brands`, `getHighEntropyValues().fullVersionList`, `Sec-CH-UA` and
+`Sec-CH-UA-Full-Version-List` now equal vanta-fingerprint's port (`ua.rs`)
+entry for entry, and `Persona::bind_engine` pins `brand` to "Google Chrome".
 
 Blink code reads the persona only through the adapter
 (`blink::vanta_surfaces::GetPersonaSurfaces()`); these patches add fields to
@@ -62,8 +70,14 @@ the host zone; an unknown zone logs and keeps the host zone.
   Segoe UI Emoji, Segoe UI Symbol, Times New Roman), case-insensitive.
 - Blink: `platform/fonts/font_cache.cc` refuses name matches (CSS
   `font-family`, `local()`, `document.fonts.check`, canvas) whose real family
-  is not allowed, through the adapter's `IsFontFamilyAllowed()`. System
-  fallback is not filtered, so text in any script still renders.
+  is not allowed, through the adapter's `IsFontFamilyAllowed()`.
+- System font fallback (`platform/fonts/win/font_cache_skia_win.cc`,
+  `GetDWriteFallbackFamily`): DirectWrite may only pick a persona font or a
+  font in `kWindowsFallbackFonts` (the fonts a default Windows 10/11 install
+  ships for its scripts, symbols and emoji); a font only this host has
+  installed is refused and the character falls to the next fallback / last
+  resort, as on a default install. Chromium's hard-coded per-script choices
+  (`font_fallback_win.cc`) only name default Windows fonts.
 - `content/browser/font_access/font_enumeration_cache.cc`:
   `queryLocalFonts()` lists only allowed families.
 - WebRTC (`chrome/browser/renderer_preferences_util.cc`): with a persona the
@@ -124,5 +138,12 @@ which handles patches editing files an earlier Vanta patch created). Passed
   patch. Profiles whose DPR equals the host's are unaffected.
 - `Intl` locale is applied per renderer process at startup; navigator.language
   still follows `languages[0]` (the launcher keeps them consistent).
+- **Font fallback**: fallback fonts are the host's own files: a default font
+  the host lacks (removed, or an optional "supplemental font" the persona
+  would not have) behaves as on that host. Fonts installed by host apps are
+  no longer reachable through fallback.
+- **Version lock (documented only)**: the engine is pinned to Chromium
+  156.0.8078.79 (R5); real Chrome auto-updates, so the persona's Chrome
+  version ages with the engine until the next rebase.
 - ClientRects noise needs the ungoogled flags patch (in the pinned series);
   `offsetWidth`/`clientWidth` integers stay exact (as in the upstream flag).

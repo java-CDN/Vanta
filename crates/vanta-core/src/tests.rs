@@ -432,6 +432,8 @@ fn config(dir: &Path) -> AppConfig {
     cfg.health_timeout = Duration::from_millis(300);
     cfg.proxy_timeout = Duration::from_secs(2);
     cfg.heartbeat = Duration::from_millis(200);
+    // Deterministic across hosts: no native-family filter unless a test sets one.
+    cfg.host_gpu = None;
     cfg
 }
 
@@ -550,17 +552,23 @@ fn deps_with(
 }
 
 fn env_with(engine: MockEngine, dir: Option<PathBuf>) -> Env {
+    env_with_host_gpu(engine, dir, None)
+}
+
+fn env_with_host_gpu(
+    engine: MockEngine,
+    dir: Option<PathBuf>,
+    host_gpu: Option<vanta_fingerprint::device::GpuFamily>,
+) -> Env {
     let dir = dir.unwrap_or_else(|| {
         std::env::temp_dir().join(format!("vanta-core-test-{}", uuid::Uuid::new_v4()))
     });
     let engine = Arc::new(engine);
     let client_pid = Arc::new(AtomicU32::new(0));
     let echo = Arc::new(FakeEcho::new());
-    let app = VantaApp::open(
-        config(&dir),
-        deps(engine.clone(), client_pid.clone(), echo.clone()),
-    )
-    .unwrap();
+    let mut cfg = config(&dir);
+    cfg.host_gpu = host_gpu;
+    let app = VantaApp::open(cfg, deps(engine.clone(), client_pid.clone(), echo.clone())).unwrap();
     Env {
         dir,
         app,
@@ -900,6 +908,30 @@ async fn health_run_below_60_blocks_launch() {
     assert_eq!(codes(&err), ["health_too_low"]);
     assert_eq!(status(&e, id), ProfileStatus::Blocked);
     assert_eq!(e.engine.count(), 1, "no engine for a blocked launch");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn native_gpu_family_filters_new_personas_and_blocks_foreign_ones() {
+    use vanta_fingerprint::device::GpuFamily;
+    let up = upstream(USER, PASSWORD).await;
+    let e = env_with_host_gpu(MockEngine::new(ENGINE), None, Some(GpuFamily::Intel));
+    let (id, proxy) = setup(&e, &up);
+    let gpu = e.app.get_profile(id).unwrap().persona.gpu;
+    assert_eq!(
+        GpuFamily::from_gpu_string(&gpu),
+        Some(GpuFamily::Intel),
+        "{gpu}"
+    );
+    // Same data folder on a host whose GPU is NVIDIA: the Intel persona is blocked.
+    let dir = e.dir.clone();
+    e.app.lock().unwrap();
+    std::mem::forget(e);
+    let e = env_with_host_gpu(MockEngine::new(ENGINE), Some(dir), Some(GpuFamily::Nvidia));
+    e.app.unlock(MASTER).unwrap();
+    fresh_health(&e, id, &proxy, 90);
+    let err = e.app.launch_profile(id).await.unwrap_err();
+    assert_eq!(codes(&err), ["rules_failed"]);
+    assert_eq!(e.engine.count(), 0, "no engine for a foreign GPU family");
 }
 
 #[tokio::test(flavor = "multi_thread")]

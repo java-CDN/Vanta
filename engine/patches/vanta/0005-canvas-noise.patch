@@ -11,7 +11,7 @@
 
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/canvas_noise.h
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,95 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -19,6 +19,10 @@
 +#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_CANVAS_NOISE_H_
 +#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_CANVAS_NOISE_H_
 +
++#include <stddef.h>
++#include <stdint.h>
++
++#include "base/containers/span.h"
 +#include "base/memory/scoped_refptr.h"
 +#include "third_party/blink/renderer/platform/platform_export.h"
 +
@@ -31,32 +35,66 @@
 +namespace vanta_surfaces {
 +
 +// Seeded Canvas 2D readback noise (Vanta patch 0005), active only when the
-+// persona's canvas mode is Noise. The rule, per pixel:
++// persona's canvas mode is Noise. The rule, per pixel of the surface:
 +//  - only fully opaque pixels, so premultiplied and unpremultiplied readbacks
 +//    (encoders vs. getImageData) change in exactly the same way;
 +//  - only pixels whose colour (ignoring the lowest bit) differs from every
-+//    4-neighbour inside the read area: antialiased edges of text, arcs and
-+//    emoji. Solid fills, rectangle edges and 1px lines read back exact;
-+//  - one seeded bit, from (seed, canvas x, canvas y, colour), becomes the
++//    4-neighbour ON THE SURFACE: antialiased edges of text, arcs and emoji.
++//    Solid fills, rectangle edges and 1px lines read back exact;
++//  - one seeded bit, from (seed, surface x, surface y, colour), becomes the
 +//    lowest bit of R, G and B, except channels at 0 or 255. Grey stays grey.
-+// Every decision reads the colour without its lowest bit, which the noise
++// The decision for a pixel depends only on the seed, its absolute position
++// and the surface pixels around it, never on the rectangle being read: a
++// 1x1 read, any sub-rectangle and a full read (getImageData, readPixels,
++// toDataURL/toBlob) all return the same value for the same pixel.
++// Every decision reads colours without their lowest bit, which the noise
 +// never changes, so applying it twice equals applying it once: reads are
 +// stable, and getImageData -> putImageData -> getImageData is unchanged.
-+
++//
 +// The same rule serves WebGL readbacks (readPixels, toDataURL/toBlob of a
 +// WebGL canvas) with the persona's webgl_image mode and webgl seed.
 +// Mode Block: every readback of that surface is transparent black, the
 +// pixels of a blank canvas, whatever was drawn.
 +enum class ImageSurface { kCanvas2D, kWebGL };
 +
-+// In place, on an 8888 (RGBA or BGRA) pixmap whose pixel (0, 0) is canvas
-+// pixel (origin_x, origin_y). Other colour types are left alone (Block
-+// clears them too).
++// True when readbacks of `surface` are changed (mode Noise or Block), so
++// callers can skip the extra read of the pixels around a readback.
++PLATFORM_EXPORT bool ReadbackNoiseActive(ImageSurface surface);
++
++// In place, on an 8888 (RGBA or BGRA) pixmap `out` whose pixel (0, 0) is
++// surface pixel (out_x, out_y). `around` holds the surface pixels the
++// decision reads: `out`'s on-surface part plus a 1-pixel border, clamped to
++// the surface (pixels outside `around` are outside the surface), with the
++// same colour type as `out`; its pixel (0, 0) is surface pixel
++// (around_x, around_y). Other colour types are left alone (Block clears
++// them too).
 +PLATFORM_EXPORT void ApplyCanvasNoise(
-+    const SkPixmap& pixmap,
-+    int origin_x,
-+    int origin_y,
++    const SkPixmap& out,
++    int out_x,
++    int out_y,
++    const SkPixmap& around,
++    int around_x,
++    int around_y,
 +    ImageSurface surface = ImageSurface::kCanvas2D);
++
++// WebGL readPixels (RGBA, UNSIGNED_BYTE): `out` holds rows of `width`
++// pixels, `out_row_bytes` apart, bottom row first, for the GL rectangle
++// (x, y, width, height). `around` is the same kind of read of
++// (x - 1, y - 1, width + 2, height + 2) with `around_row_bytes`; pixels
++// outside the framebuffer must read as 0. For the default framebuffer pass
++// its size as `surface_width` x `surface_height`, which makes the decision
++// key the top-down position a toDataURL of the canvas uses; 0 x 0 for a
++// framebuffer object (GL coordinates as they are).
++PLATFORM_EXPORT void ApplyWebGLReadNoise(base::span<uint8_t> out,
++                                         size_t out_row_bytes,
++                                         int x,
++                                         int y,
++                                         int width,
++                                         int height,
++                                         base::span<const uint8_t> around,
++                                         size_t around_row_bytes,
++                                         int surface_width,
++                                         int surface_height);
 +
 +// For toDataURL/toBlob/convertToBlob: a noised (or, for Block, blank) raster
 +// copy of `image`, or `image` itself when the surface's mode is Real or the
@@ -71,7 +109,7 @@
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_CANVAS_NOISE_H_
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/canvas_noise.cc
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,294 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -80,6 +118,8 @@
 +
 +#include <stddef.h>
 +#include <stdint.h>
++
++#include <algorithm>
 +
 +#include "base/compiler_specific.h"
 +#include "base/containers/span.h"
@@ -117,78 +157,214 @@
 +  return type == kRGBA_8888_SkColorType || type == kBGRA_8888_SkColorType;
 +}
 +
-+void Noise(const SkPixmap& pixmap, int origin_x, int origin_y, uint64_t seed) {
-+  const int width = pixmap.width();
-+  const int height = pixmap.height();
-+  const size_t row_bytes = pixmap.rowBytes();
-+  if (width <= 0 || height <= 0 || !pixmap.writable_addr()) {
-+    return;
++// Bytes an 8888 pixmap of `width` x `height` with `row_bytes` addresses.
++size_t SpanBytes(size_t row_bytes, int width, int height) {
++  if (width <= 0 || height <= 0) {
++    return 0;
 +  }
-+  // Byte offsets of R and B; G is 1 and A is 3 in both layouts.
-+  const size_t r = pixmap.colorType() == kRGBA_8888_SkColorType ? 0 : 2;
-+  const size_t b = 2 - r;
-+  // SAFETY: an SkPixmap addresses rowBytes() * (height - 1) + width * 4 bytes.
-+  base::span<uint8_t> px = UNSAFE_BUFFERS(
-+      base::span(static_cast<uint8_t*>(pixmap.writable_addr()),
-+                 row_bytes * (height - 1) + static_cast<size_t>(width) * 4));
-+  auto at = [&](int x, int y) {
-+    return static_cast<size_t>(y) * row_bytes + static_cast<size_t>(x) * 4;
-+  };
-+  // Colour without the lowest bit of R, G, B (and full alpha), in RGBA order.
-+  auto coarse = [&](size_t i) -> uint32_t {
++  return row_bytes * static_cast<size_t>(height - 1) +
++         static_cast<size_t>(width) * 4;
++}
++
++// Surface pixels the decision reads; pixel (0, 0) is surface (x, y).
++struct Around {
++  base::span<const uint8_t> px;
++  size_t row_bytes = 0;
++  int x = 0;
++  int y = 0;
++  int width = 0;
++  int height = 0;
++  size_t r = 0;  // Byte offset of R: 0 in RGBA, 2 in BGRA.
++  // When > 0, the surface size: positions outside it are never neighbours.
++  int surface_width = 0;
++  int surface_height = 0;
++
++  bool Has(int sx, int sy) const {
++    if (sx < x || sy < y || sx - x >= width || sy - y >= height) {
++      return false;
++    }
++    return surface_width <= 0 ||
++           (sx >= 0 && sy >= 0 && sx < surface_width && sy < surface_height);
++  }
++  size_t At(int sx, int sy) const {
++    return static_cast<size_t>(sy - y) * row_bytes +
++           static_cast<size_t>(sx - x) * 4;
++  }
++  // Colour without the lowest bit of R, G, B (and full alpha), RGBA order.
++  uint32_t Coarse(int sx, int sy) const {
++    const size_t i = At(sx, sy);
 +    return uint32_t{px[i + r]} >> 1 | (uint32_t{px[i + 1]} >> 1) << 7 |
-+           (uint32_t{px[i + b]} >> 1) << 14 | uint32_t{px[i + 3]} << 21;
-+  };
++           (uint32_t{px[i + 2 - r]} >> 1) << 14 | uint32_t{px[i + 3]} << 21;
++  }
++};
++
++// The pixels being returned; pixel (0, 0) is surface (x, y).
++struct Out {
++  base::span<uint8_t> px;
++  size_t row_bytes = 0;
++  int x = 0;
++  int y = 0;
++  int width = 0;
++  int height = 0;
++  size_t r = 0;
++};
++
++// `flip_height` > 0: surface y counts up from the bottom row (GL), and the
++// decision key uses the top-down row flip_height - 1 - y.
++void Noise(const Out& out, const Around& around, int flip_height,
++           uint64_t seed) {
 +  static constexpr int kDx[] = {-1, 1, 0, 0};
 +  static constexpr int kDy[] = {0, 0, -1, 1};
-+  for (int y = 0; y < height; ++y) {
-+    for (int x = 0; x < width; ++x) {
-+      const size_t i = at(x, y);
-+      if (px[i + 3] != 255) {
++  const size_t out_b = 2 - out.r;
++  for (int j = 0; j < out.height; ++j) {
++    for (int i = 0; i < out.width; ++i) {
++      const int sx = out.x + i;
++      const int sy = out.y + j;
++      if (!around.Has(sx, sy) || around.px[around.At(sx, sy) + 3] != 255) {
 +        continue;
 +      }
-+      const uint32_t colour = coarse(i);
++      const uint32_t colour = around.Coarse(sx, sy);
 +      bool has_neighbour = false;
 +      bool isolated = true;
 +      for (int n = 0; n < 4 && isolated; ++n) {
-+        const int nx = x + kDx[n];
-+        const int ny = y + kDy[n];
-+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
++        const int nx = sx + kDx[n];
++        const int ny = sy + kDy[n];
++        if (!around.Has(nx, ny)) {
 +          continue;
 +        }
 +        has_neighbour = true;
-+        isolated = coarse(at(nx, ny)) != colour;
++        isolated = around.Coarse(nx, ny) != colour;
 +      }
 +      if (!has_neighbour || !isolated) {
 +        continue;
 +      }
-+      const uint64_t where =
-+          uint64_t{static_cast<uint32_t>(origin_x + x)} << 32 |
-+          static_cast<uint32_t>(origin_y + y);
++      const int key_y = flip_height > 0 ? flip_height - 1 - sy : sy;
++      const uint64_t where = uint64_t{static_cast<uint32_t>(sx)} << 32 |
++                             static_cast<uint32_t>(key_y);
 +      const uint8_t bit = Mix64(seed ^ Mix64(where ^ Mix64(colour))) & 1;
-+      for (size_t c : {r, size_t{1}, b}) {
-+        if (px[i + c] != 0 && px[i + c] != 255) {
-+          px[i + c] = (px[i + c] & 0xfe) | bit;
++      const size_t o = static_cast<size_t>(j) * out.row_bytes +
++                       static_cast<size_t>(i) * 4;
++      for (size_t c : {out.r, size_t{1}, out_b}) {
++        if (out.px[o + c] != 0 && out.px[o + c] != 255) {
++          out.px[o + c] = (out.px[o + c] & 0xfe) | bit;
 +        }
 +      }
 +    }
 +  }
 +}
 +
++Out OutOf(const SkPixmap& pixmap, int x, int y) {
++  Out out;
++  if (!pixmap.writable_addr()) {
++    return out;
++  }
++  // SAFETY: an SkPixmap addresses rowBytes() * (height - 1) + width * 4
++  // bytes of 8888 pixels.
++  out.px = UNSAFE_BUFFERS(
++      base::span(static_cast<uint8_t*>(pixmap.writable_addr()),
++                 SpanBytes(pixmap.rowBytes(), pixmap.width(),
++                           pixmap.height())));
++  out.row_bytes = pixmap.rowBytes();
++  out.x = x;
++  out.y = y;
++  out.width = out.px.empty() ? 0 : pixmap.width();
++  out.height = out.px.empty() ? 0 : pixmap.height();
++  out.r = pixmap.colorType() == kRGBA_8888_SkColorType ? 0 : 2;
++  return out;
++}
++
++Around AroundOf(const SkPixmap& pixmap, int x, int y) {
++  Around around;
++  if (!pixmap.addr()) {
++    return around;
++  }
++  // SAFETY: as in OutOf().
++  around.px = UNSAFE_BUFFERS(
++      base::span(static_cast<const uint8_t*>(pixmap.addr()),
++                 SpanBytes(pixmap.rowBytes(), pixmap.width(),
++                           pixmap.height())));
++  around.row_bytes = pixmap.rowBytes();
++  around.x = x;
++  around.y = y;
++  around.width = around.px.empty() ? 0 : pixmap.width();
++  around.height = around.px.empty() ? 0 : pixmap.height();
++  around.r = pixmap.colorType() == kRGBA_8888_SkColorType ? 0 : 2;
++  return around;
++}
++
 +}  // namespace
 +
-+void ApplyCanvasNoise(const SkPixmap& pixmap,
-+                      int origin_x,
-+                      int origin_y,
++bool ReadbackNoiseActive(ImageSurface surface) {
++  return SurfaceBlocked(surface) || SurfaceSeed(surface) != 0;
++}
++
++void ApplyCanvasNoise(const SkPixmap& out,
++                      int out_x,
++                      int out_y,
++                      const SkPixmap& around,
++                      int around_x,
++                      int around_y,
 +                      ImageSurface surface) {
 +  if (SurfaceBlocked(surface)) {
-+    pixmap.erase(SK_ColorTRANSPARENT);
++    out.erase(SK_ColorTRANSPARENT);
 +    return;
 +  }
 +  const uint64_t seed = SurfaceSeed(surface);
-+  if (seed && Is8888(pixmap.colorType())) {
-+    Noise(pixmap, origin_x, origin_y, seed);
++  if (!seed || !Is8888(out.colorType()) ||
++      around.colorType() != out.colorType()) {
++    return;
 +  }
++  Noise(OutOf(out, out_x, out_y), AroundOf(around, around_x, around_y),
++        /*flip_height=*/0, seed);
++}
++
++void ApplyWebGLReadNoise(base::span<uint8_t> out,
++                         size_t out_row_bytes,
++                         int x,
++                         int y,
++                         int width,
++                         int height,
++                         base::span<const uint8_t> around,
++                         size_t around_row_bytes,
++                         int surface_width,
++                         int surface_height) {
++  if (width <= 0 || height <= 0) {
++    return;
++  }
++  const size_t out_bytes = SpanBytes(out_row_bytes, width, height);
++  if (out.size() < out_bytes) {
++    return;
++  }
++  if (SurfaceBlocked(ImageSurface::kWebGL)) {
++    for (int j = 0; j < height; ++j) {
++      std::ranges::fill(out.subspan(static_cast<size_t>(j) * out_row_bytes,
++                                    static_cast<size_t>(width) * 4),
++                        uint8_t{0});
++    }
++    return;
++  }
++  const uint64_t seed = SurfaceSeed(ImageSurface::kWebGL);
++  if (!seed ||
++      around.size() < SpanBytes(around_row_bytes, width + 2, height + 2)) {
++    return;
++  }
++  Around a;
++  a.px = around;
++  a.row_bytes = around_row_bytes;
++  a.x = x - 1;
++  a.y = y - 1;
++  a.width = width + 2;
++  a.height = height + 2;
++  a.surface_width = surface_width;
++  a.surface_height = surface_height;
++  Out o;
++  o.px = out.first(out_bytes);
++  o.row_bytes = out_row_bytes;
++  o.x = x;
++  o.y = y;
++  o.width = width;
++  o.height = height;
++  Noise(o, a, surface_height, seed);
 +}
 +
 +scoped_refptr<StaticBitmapImage> ApplyCanvasNoise(
@@ -218,7 +394,9 @@
 +    if (!source->readPixels(bitmap.pixmap(), 0, 0)) {
 +      return image;
 +    }
-+    Noise(bitmap.pixmap(), 0, 0, seed);
++    // The whole image is the surface: it is its own neighbourhood.
++    Noise(OutOf(bitmap.pixmap(), 0, 0), AroundOf(bitmap.pixmap(), 0, 0),
++          /*flip_height=*/0, seed);
 +  }
 +  bitmap.setImmutable();
 +  return UnacceleratedStaticBitmapImage::Create(
@@ -239,7 +417,7 @@
      "video_capture/video_capture_impl.cc",
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-@@ -104,6 +104,7 @@
+@@ -104,10 +104,13 @@
  #include "third_party/blink/renderer/platform/text/text_run.h"
  #include "third_party/blink/renderer/platform/text/unicode_bidi.h"
  #include "third_party/blink/renderer/platform/timer.h"
@@ -247,13 +425,40 @@
  #include "third_party/blink/renderer/platform/wtf/casting.h"
  #include "third_party/blink/renderer/platform/wtf/forward.h"
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-@@ -567,6 +568,10 @@
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "ui/gfx/geometry/rect.h"
+ #include "ui/gfx/geometry/skia_conversions.h"
+ #include "ui/gfx/geometry/vector2d_f.h"
+ 
+@@ -567,6 +570,31 @@
      if (read_pixels_successful && RuntimeEnabledFeatures::FingerprintingCanvasImageDataNoiseEnabled()) {
        StaticBitmapImage::ShuffleSubchannelColorData(image_data_pixmap.addr(), image_data_pixmap.info());
      }
-+    if (read_pixels_successful) {
-+      // Vanta: seeded persona noise, keyed on canvas coordinates.
-+      vanta_surfaces::ApplyCanvasNoise(image_data_pixmap, sx, sy);
++    if (read_pixels_successful &&
++        vanta_surfaces::ReadbackNoiseActive(
++            vanta_surfaces::ImageSurface::kCanvas2D)) {
++      // Vanta: seeded persona noise, decided on the canvas pixels around the
++      // read (read area plus a 1-pixel border, clamped to the canvas), so
++      // any sub-rectangle returns exactly what a full read returns there.
++      gfx::Rect around_rect =
++          gfx::IntersectRects(image_data_rect, snapshot_rect);
++      around_rect.Outset(1);
++      around_rect.Intersect(snapshot_rect);
++      SkBitmap around;
++      if (!around_rect.IsEmpty() &&
++          around.tryAllocPixels(image_data_pixmap.info().makeWH(
++              around_rect.width(), around_rect.height())) &&
++          snapshot->PaintImageForCurrentFrame().readPixels(
++              around.info(), around.getPixels(), around.rowBytes(),
++              around_rect.x(), around_rect.y())) {
++        vanta_surfaces::ApplyCanvasNoise(image_data_pixmap, sx, sy,
++                                         around.pixmap(), around_rect.x(),
++                                         around_rect.y());
++      } else {
++        // No neighbourhood: return nothing rather than unnoised pixels.
++        image_data_pixmap.erase(SK_ColorTRANSPARENT);
++      }
 +    }
    }
  
@@ -318,3 +523,64 @@
    if (image_bitmap) {
      auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(
          script_state, exception_state.GetContext());
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -34,6 +34,7 @@
+ #include <utility>
+ 
+ #include "base/bit_cast.h"
++#include "base/bits.h"
+ #include "base/byte_size.h"
+ #include "base/compiler_specific.h"
+ #include "base/feature_list.h"
+@@ -163,6 +164,7 @@
+ #include "third_party/blink/renderer/platform/heap/member.h"
+ #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
++#include "third_party/blink/renderer/platform/vanta/canvas_noise.h"
+ #include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
+ #include "third_party/blink/renderer/platform/wtf/functional.h"
+@@ -5466,6 +5468,42 @@
+       return;
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++    // Vanta (patch 0005): webgl_image noise, the per-pixel rule toDataURL
++    // uses, decided on the framebuffer pixels around the read so any
++    // sub-rectangle returns what a full read returns there. RGBA bytes with
++    // a plain pack layout only (what WebGL 1 always has).
++    const WebGLImageConversion::PixelStoreParams pack =
++        GetPackPixelStoreParams();
++    if (data && width > 0 && height > 0 && format == GL_RGBA &&
++        type == GL_UNSIGNED_BYTE && pack.row_length == 0 &&
++        pack.skip_pixels == 0 && pack.skip_rows == 0 &&
++        vanta_surfaces::ReadbackNoiseActive(
++            vanta_surfaces::ImageSurface::kWebGL)) {
++      const size_t alignment = static_cast<size_t>(pack.alignment);
++      const size_t row_bytes =
++          base::bits::AlignUp(static_cast<size_t>(width) * 4, alignment);
++      const size_t around_row_bytes =
++          base::bits::AlignUp(static_cast<size_t>(width + 2) * 4, alignment);
++      base::CheckedNumeric<wtf_size_t> around_size = around_row_bytes;
++      around_size *= height + 2;
++      base::CheckedNumeric<size_t> out_size = row_bytes;
++      out_size *= height - 1;
++      out_size += static_cast<size_t>(width) * 4;
++      if (around_size.IsValid() && out_size.IsValid()) {
++        // Zero-filled: pixels outside the framebuffer stay transparent.
++        Vector<uint8_t> around(around_size.ValueOrDie());
++        ContextGL()->ReadPixels(x - 1, y - 1, width + 2, height + 2, GL_RGBA,
++                                GL_UNSIGNED_BYTE, around.data());
++        const gfx::Size surface =
++            framebuffer ? gfx::Size() : GetDrawingBuffer()->Size();
++        // SAFETY: ValidateReadPixelsFuncParameters() checked that the
++        // destination holds the packed rows of this read.
++        vanta_surfaces::ApplyWebGLReadNoise(
++            UNSAFE_BUFFERS(base::span(data, out_size.ValueOrDie())), row_bytes,
++            x, y, width, height, base::span(around), around_row_bytes,
++            surface.width(), surface.height());
++      }
++    }
+   }
+ }
+ 

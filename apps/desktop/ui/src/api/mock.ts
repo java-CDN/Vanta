@@ -162,7 +162,7 @@ export function mockBackend(opts: MockOptions = {}): Backend {
       fonts: os === 'windows11' ? FONTS_WIN11 : FONTS_WIN10, microphones: 1 + (seed % 2), cameras: seed % 2, speakers: 1 + (seed % 3),
       locale, languages: langs, accept_language: langs.map((l, i) => (i ? `${l};q=${(1 - i * 0.1).toFixed(1)}` : l)).join(','),
       timezone: geo?.tz ?? null, country: geo?.cc ?? null, latitude: geo ? COUNTRIES[geo.cc]?.lat ?? null : null, longitude: geo ? COUNTRIES[geo.cc]?.lng ?? null : null,
-      canvas: 'real', webgl_image: 'real', audio: 'noise', webrtc_policy: 'disable_non_proxied_udp',
+      canvas: 'noise', webgl_image: 'noise', audio: 'noise', webrtc_policy: 'disable_non_proxied_udp',
       seed_prefix: (seed >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(0, 4), rules,
     };
   };
