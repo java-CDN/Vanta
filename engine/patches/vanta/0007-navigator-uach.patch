@@ -199,10 +199,10 @@
  
 --- a/third_party/blink/renderer/platform/vanta/vanta_persona.cc
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
-@@ -33,6 +33,8 @@
-   if (persona->audio_mode == ::vanta::SurfaceMode::kNoise) {
-     s.audio_noise_seed = persona->seeds.audio;
-   }
+@@ -40,6 +40,8 @@
+   s.canvas_block = persona->canvas_mode == SurfaceMode::kBlock;
+   s.webgl_image_block = persona->webgl_image_mode == SurfaceMode::kBlock;
+   s.audio_block = persona->audio_mode == SurfaceMode::kBlock;
 +  s.hardware_concurrency =
 +      static_cast<uint32_t>(persona->hardware_concurrency);
    return s;
@@ -210,10 +210,10 @@
  
 --- a/third_party/blink/renderer/platform/vanta/vanta_persona.h
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.h
-@@ -26,6 +26,8 @@
-   // Noise seeds; 0 unless the surface's mode is Noise.
-   uint64_t canvas_noise_seed = 0;  // patch 0005
-   uint64_t audio_noise_seed = 0;   // patch 0006
+@@ -32,6 +32,8 @@
+   bool canvas_block = false;
+   bool webgl_image_block = false;
+   bool audio_block = false;
 +  // navigator.hardwareConcurrency (patch 0007); 0: the real count.
 +  uint32_t hardware_concurrency = 0;
  };

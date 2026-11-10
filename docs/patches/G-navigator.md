@@ -87,13 +87,42 @@ series before these (the version of offline_check.py on team/engine-persona,
 which handles patches editing files an earlier Vanta patch created). Passed
 2026-11-09 with `patch -F0`.
 
+## Integration fixes (2026-11-10)
+
+- **Font metrics (0010)**: ungoogled already ships the ClientRects and
+  measureText noise flags (`--fingerprinting-client-rects-noise`,
+  `--fingerprinting-canvas-measuretext-noise`, random factor per document).
+  With a persona the browser appends both switches to every renderer
+  (`ChromeContentBrowserClient::AppendExtraCommandLineSwitches`), and Blink
+  replaces the random factors with constants seeded from the persona:
+  `Document` takes `client_rects_factor_x/y` (`clientrects_seed`) for
+  `getClientRects`/`getBoundingClientRect` on elements and ranges, and
+  `measureText` (windows and workers) scales `TextMetrics` by
+  `text_metrics_factor` (`font_seed`). Factors are within 1 ± 1.5e-6, the
+  flags' own range; same profile, same values everywhere.
+- **Intl default locale (0009)**: `TimeZoneController::Init` also makes the
+  persona `locale` the ICU default locale before any isolate exists; V8 reads
+  it as the `Intl` default (`resolvedOptions().locale`, `toLocaleString()`).
+- **DevTools time zone (0009)**: the persona zone is the base. A DevTools
+  `Emulation.setTimezoneOverride` (the user's own DevTools; the launcher starts
+  the engine without remote debugging) still applies on top, and clearing it
+  returns to the persona zone, never to the host zone (the "host" zone a
+  cleared override restores is the persona zone, also under
+  `kLazyBlinkTimezoneInit`).
+- **screenX/screenY (0008)**: `LocalDOMWindow::screenX/screenY` (and
+  `screenLeft/screenTop`) report the window offset from its display's work
+  area, clamped into `[0, avail - outer]` of the persona screen, so a taskbar
+  on the left/top, negative coordinates or a second monitor never show.
+
 ## Known gaps / risks
 
-- Forced DSF also scales the browser UI when the host DPI differs.
-- Physical-pixel APIs not covered here: `matchMedia` on real monitor size is
-  consistent, but `window.screenX/screenY` still use the real desktop origin.
-- Font filter does not change font metrics (font_seed / clientrects_seed are
-  for a later patch).
-- `Intl` default *locale* is not changed here (only time zone and
-  languages); that belongs to the locale patch (G7).
-- DevTools time zone emulation can still override the persona zone.
+- **Forced DSF scales the browser UI** when the host DPI differs: the persona
+  DPR is applied as the forced device scale factor in every process, the
+  browser included, because the compositor and the renderer must agree on it
+  (a renderer-only DPR would raster at the wrong size). Avoiding it needs a
+  DevTools-style device-metrics emulation per WebContents; left for a later
+  patch. Profiles whose DPR equals the host's are unaffected.
+- `Intl` locale is applied per renderer process at startup; navigator.language
+  still follows `languages[0]` (the launcher keeps them consistent).
+- ClientRects noise needs the ungoogled flags patch (in the pinned series);
+  `offsetWidth`/`clientWidth` integers stay exact (as in the upstream flag).

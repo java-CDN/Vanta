@@ -3,7 +3,9 @@
 # device-* media queries come from one place (DisplayUtil::DisplayToScreenInfo);
 # devicePixelRatio is the persona DPR applied as the forced device scale factor
 # in every process; new browser windows are clamped to the persona's available
-# area so outerWidth/outerHeight <= availWidth/availHeight. No persona: unchanged.
+# area so outerWidth/outerHeight <= availWidth/availHeight; window.screenX/Y
+# are relative to the display's work area, clamped into the persona's
+# available area (no real desktop origin). No persona: unchanged.
 
 --- a/chrome/browser/ui/window_sizer/BUILD.gn
 +++ b/chrome/browser/ui/window_sizer/BUILD.gn
@@ -94,7 +96,7 @@
  #include "ui/display/display_switches.h"
  #include "ui/display/util/display_util.h"
  #include "ui/gfx/geometry/insets.h"
-@@ -37,12 +39,31 @@
+@@ -37,12 +39,35 @@
  // expected DP display size.
  constexpr float kDisplaySizeAllowanceEpsilon = 0.01f;
  
@@ -105,10 +107,14 @@
 +// Windows' scaling range are ignored.
 +std::optional<double> VantaDeviceScaleFactor() {
 +  const vanta::Persona* persona = vanta::GetPersona();
-+  if (!persona || !(persona->screen.device_pixel_ratio >= 1.0 && persona->screen.device_pixel_ratio <= 5.0)) {
++  if (!persona) {
 +    return std::nullopt;
 +  }
-+  return persona->screen.device_pixel_ratio;
++  const double dpr = persona->screen.device_pixel_ratio;
++  if (!(dpr >= 1.0 && dpr <= 5.0)) {
++    return std::nullopt;
++  }
++  return dpr;
 +}
 +
  bool HasForceDeviceScaleFactorImpl() {
@@ -140,7 +146,7 @@
  #include "ui/display/display.h"
  #include "ui/display/screen.h"
  
-@@ -58,6 +61,32 @@
+@@ -58,6 +61,34 @@
    screen_info->display_frequency = display.display_frequency();
    screen_info->display_id = display.id();
    screen_info->label = display.label();
@@ -156,14 +162,16 @@
 +      persona && persona->screen.width > 0 && persona->screen.height > 0) {
 +    const int width = static_cast<int>(persona->screen.width);
 +    const int height = static_cast<int>(persona->screen.height);
-+    const int avail_width = std::clamp(static_cast<int>(persona->screen.avail_width), 1, width);
++    const int avail_width =
++        std::clamp(static_cast<int>(persona->screen.avail_width), 1, width);
 +    const int avail_height =
 +        std::clamp(static_cast<int>(persona->screen.avail_height), 1, height);
 +    const gfx::Point origin = display.bounds().origin();
 +    screen_info->rect = gfx::Rect(origin, gfx::Size(width, height));
 +    screen_info->available_rect =
 +        gfx::Rect(origin, gfx::Size(avail_width, avail_height));
-+    if (persona->screen.color_depth == 24 || persona->screen.color_depth == 30) {
++    if (persona->screen.color_depth == 24 ||
++        persona->screen.color_depth == 30) {
 +      screen_info->depth = static_cast<int>(persona->screen.color_depth);
 +      screen_info->depth_per_component = screen_info->depth / 3;
 +    }
@@ -173,3 +181,71 @@
  }
  
  // static
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -26,6 +26,7 @@
+ 
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
++#include <algorithm>
+ #include <memory>
+ #include <optional>
+ #include <utility>
+@@ -162,6 +163,7 @@
+ #include "third_party/blink/renderer/platform/scheduler/public/task_attribution_tracker.h"
+ #include "third_party/blink/renderer/platform/storage/blink_storage_key.h"
+ #include "third_party/blink/renderer/platform/timer.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/weborigin/kurl.h"
+ #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ #include "third_party/blink/renderer/platform/widget/frame_widget.h"
+@@ -1787,6 +1789,29 @@
+                                           GetFrame()->LayoutZoomFactor());
+ }
+ 
++namespace {
++
++// Vanta (0008): window.screenX/screenY (and screenLeft/screenTop) relative
++// to the persona screen: the window's offset from its own display's work
++// area, kept inside the persona's available area. The real desktop origin
++// (taskbar on the left/top, a second monitor to the left, negative
++// coordinates) never shows. nullopt: no persona, Chromium's own value.
++std::optional<int> VantaScreenPosition(ChromeClient& chrome_client,
++                                       LocalFrame& frame,
++                                       bool vertical) {
++  if (!vanta_surfaces::GetPersonaSurfaces()) {
++    return std::nullopt;
++  }
++  const gfx::Rect window = chrome_client.RootWindowRect(frame);
++  const gfx::Rect avail = chrome_client.GetScreenInfo(frame).available_rect;
++  const int offset = vertical ? window.y() - avail.y() : window.x() - avail.x();
++  const int room = vertical ? avail.height() - window.height()
++                            : avail.width() - window.width();
++  return std::clamp(offset, 0, std::max(0, room));
++}
++
++}  // namespace
++
+ int LocalDOMWindow::screenX() const {
+   LocalFrame* frame = GetFrame();
+   if (!frame) {
+@@ -1799,6 +1824,9 @@
+   }
+ 
+   ChromeClient& chrome_client = page->GetChromeClient();
++  if (std::optional<int> vanta = VantaScreenPosition(chrome_client, *frame, false)) {
++    return *vanta;
++  }
+   if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
+     return static_cast<int>(
+         lroundf(chrome_client.RootWindowRect(*frame).x() *
+@@ -1824,6 +1852,9 @@
+   }
+ 
+   ChromeClient& chrome_client = page->GetChromeClient();
++  if (std::optional<int> vanta = VantaScreenPosition(chrome_client, *frame, true)) {
++    return *vanta;
++  }
+   if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
+     return static_cast<int>(
+         lroundf(chrome_client.RootWindowRect(*frame).y() *

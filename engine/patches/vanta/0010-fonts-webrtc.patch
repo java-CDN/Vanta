@@ -3,6 +3,8 @@
 # Local Font Access list are limited to the persona's Windows font list plus a
 # small Windows baseline (components/vanta/font_allowlist.h, shared by Blink via
 # the platform/vanta adapter and by content). Fallback is not filtered.
+# Font metrics: persona renderers run ungoogled's ClientRects/measureText noise
+# with constant factors seeded from clientrects_seed / font_seed.
 # WebRTC: with a persona the IP handling policy is forced to
 # disable_non_proxied_udp (no host/mDNS/local candidates, proxy only) and
 # per-URL overrides / local-IP allow-lists are cleared. No persona: unchanged.
@@ -212,7 +214,7 @@
  ]
 --- a/third_party/blink/renderer/platform/vanta/vanta_persona.cc
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
-@@ -8,6 +8,7 @@
+@@ -8,12 +8,23 @@
  #include <string_view>
  
  #include "base/no_destructor.h"
@@ -220,7 +222,33 @@
  #include "components/vanta/persona.h"
  
  namespace blink::vanta_surfaces {
-@@ -48,4 +49,8 @@
+ 
+ namespace {
+ 
++// 1 +- 1.5e-6 from (seed, salt); 1 when the seed is 0.
++double MetricsFactor(uint64_t seed, uint64_t salt) {
++  if (!seed) {
++    return 1.0;
++  }
++  const double unit =
++      static_cast<double>(Mix64(seed ^ Mix64(salt)) >> 11) * 0x1.0p-53;
++  return 1.0 + (unit - 0.5) * 0.000003;
++}
++
+ std::optional<PersonaSurfaces> Read() {
+   const ::vanta::Persona* persona = ::vanta::GetPersona();
+   if (!persona) {
+@@ -44,6 +55,9 @@
+       static_cast<uint32_t>(persona->hardware_concurrency);
+   s.timezone = persona->timezone;
+   s.locale = persona->locale;
++  s.text_metrics_factor = MetricsFactor(persona->seeds.font, 1);
++  s.client_rects_factor_x = MetricsFactor(persona->seeds.client_rects, 2);
++  s.client_rects_factor_y = MetricsFactor(persona->seeds.client_rects, 3);
+   return s;
+ }
+ 
+@@ -56,4 +70,8 @@
    return surfaces->has_value() ? &surfaces->value() : nullptr;
  }
  
@@ -239,7 +267,19 @@
  
  #include "third_party/blink/renderer/platform/platform_export.h"
  
-@@ -36,6 +37,11 @@
+@@ -38,12 +39,23 @@
+   std::string timezone;
+   // BCP 47 default locale for ICU / V8 Intl (patch 0009); empty: unchanged.
+   std::string locale;
++  // Font metrics (patch 0010), from font_seed / clientrects_seed: canvas
++  // TextMetrics and get*ClientRect*() are scaled by these constant factors
++  // (within +-0.00015%, the range of the upstream noise flags). 1: off.
++  double text_metrics_factor = 1.0;
++  double client_rects_factor_x = 1.0;
++  double client_rects_factor_y = 1.0;
+ };
+ 
+ // nullptr when the engine runs without a persona: Chromium behaves unchanged.
  // Safe to call from any thread.
  PLATFORM_EXPORT const PersonaSurfaces* GetPersonaSurfaces();
  
@@ -251,3 +291,76 @@
  // SplitMix64 finalizer: the one mixing function every Vanta noise uses, so
  // equal inputs give equal noise in every process and on every thread.
  inline uint64_t Mix64(uint64_t x) {
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -414,6 +414,7 @@
+ #include "third_party/blink/renderer/platform/scheduler/public/frame_or_worker_scheduler.h"
+ #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+ #include "third_party/blink/renderer/platform/text/platform_locale.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/web_test_support.h"
+ #include "third_party/blink/renderer/platform/weborigin/origin_access_entry.h"
+ #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
+@@ -1064,6 +1065,14 @@
+     noise_factor_x_ = 1 + (base::RandDouble() - 0.5) * 0.000003;
+     noise_factor_y_ = 1 + (base::RandDouble() - 0.5) * 0.000003;
+   }
++  // Vanta (0010): with a persona the get*ClientRect*() factors come from the
++  // profile's clientrects_seed: the same in every document, frame and
++  // process of the profile, different between profiles. The browser turns
++  // the ClientRects noise feature on for persona renderers.
++  if (const auto* vanta = vanta_surfaces::GetPersonaSurfaces()) {
++    noise_factor_x_ = vanta->client_rects_factor_x;
++    noise_factor_y_ = vanta->client_rects_factor_y;
++  }
+   if (base::FeatureList::IsEnabled(features::kDelayAsyncScriptExecution) &&
+       features::kDelayAsyncScriptExecutionDelayByDefaultParam.Get()) {
+     script_runner_delayer_->Activate();
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -105,6 +105,7 @@
+ #include "third_party/blink/renderer/platform/text/unicode_bidi.h"
+ #include "third_party/blink/renderer/platform/timer.h"
+ #include "third_party/blink/renderer/platform/vanta/canvas_noise.h"
++#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
+ #include "third_party/blink/renderer/platform/wtf/casting.h"
+ #include "third_party/blink/renderer/platform/wtf/forward.h"
+ #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+@@ -1271,6 +1272,13 @@
+       font, direction, state.GetTextBaseline(), state.GetTextAlign(), text,
+       host->GetPlainTextPainter());
+ 
++  // Vanta (0010): with a persona, text metrics carry the profile's seeded
++  // font factor (font_seed), equal in windows and workers.
++  if (const auto* vanta = vanta_surfaces::GetPersonaSurfaces()) {
++    text_metrics->Shuffle(vanta->text_metrics_factor);
++    return text_metrics;
++  }
++
+   // Scale text metrics if enabled
+   if (RuntimeEnabledFeatures::FingerprintingCanvasMeasureTextNoiseEnabled()) {
+     if (HostAsOffscreenCanvas()) {
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -340,6 +340,7 @@
+ #include "components/supervised_user/core/common/features.h"
+ #include "components/sync_tab_context/http_rpc_constants.h"
+ #include "components/translate/core/common/translate_switches.h"
++#include "components/ungoogled/ungoogled_switches.h"
+ #include "components/user_prefs/user_prefs.h"
+ #include "components/variations/variations_associated_data.h"
+ #include "components/variations/variations_switches.h"
+@@ -2986,6 +2987,13 @@
+   // Vanta: every child process (renderer, GPU, utility incl. the network
+   // service) gets the browser-verified persona as --vanta-persona.
+   vanta::AppendPersonaSwitch(command_line);
++  // Vanta (0010): persona renderers always run the ClientRects / measureText
++  // noise; Blink seeds both factors from the persona (font_seed,
++  // clientrects_seed) instead of the flags' per-document randomness.
++  if (vanta::GetPersona() && process_type == switches::kRendererProcess) {
++    command_line->AppendSwitch(switches::kFingerprintingClientRectsNoise);
++    command_line->AppendSwitch(switches::kFingerprintingCanvasMeasureTextNoise);
++  }
+ 
+ #if BUILDFLAG(IS_CHROMEOS)
+   // On Chrome OS need to pass primary user homedir (in multi-profiles session).

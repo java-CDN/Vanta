@@ -1497,14 +1497,14 @@
    "+components/visited_url_ranking",
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -215,6 +215,7 @@
- #include "chrome/browser/universal_web_contents_observers.h"
- #include "chrome/browser/usb/chrome_usb_delegate.h"
- #include "chrome/browser/vr/vr_tab_helper.h"
+@@ -340,6 +340,7 @@
+ #include "components/sync_tab_context/http_rpc_constants.h"
+ #include "components/translate/core/common/translate_switches.h"
+ #include "components/user_prefs/user_prefs.h"
 +#include "components/vanta/persona.h"
- #include "chrome/browser/webapps/web_app_offline.h"
- #include "chrome/browser/webauthn/chrome_web_authentication_delegate_base.h"
- #include "chrome/browser/webauthn/webauthn_pref_names.h"
+ #include "components/variations/variations_associated_data.h"
+ #include "components/variations/variations_switches.h"
+ #include "components/version_info/version_info.h"
 @@ -2982,6 +2983,10 @@
    command_line->CopySwitchesFrom(browser_command_line,
                                   kDinosaurEasterEggSwitches);

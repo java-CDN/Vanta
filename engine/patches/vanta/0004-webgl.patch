@@ -15,7 +15,7 @@
 +]
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.h
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,52 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -42,8 +42,14 @@
 +  // ANGLE names NVIDIA as the vendor ("ANGLE (NVIDIA, ...").
 +  bool gpu_nvidia = false;
 +  // Noise seeds; 0 unless the surface's mode is Noise.
-+  uint64_t canvas_noise_seed = 0;  // patch 0005
-+  uint64_t audio_noise_seed = 0;   // patch 0006
++  uint64_t canvas_noise_seed = 0;      // patch 0005, Canvas 2D readback
++  uint64_t webgl_image_noise_seed = 0;  // patch 0005, WebGL readback
++  uint64_t audio_noise_seed = 0;       // patch 0006
++  // Mode Block: the surface's readback returns blank data (transparent
++  // black pixels, silent samples) instead of the rendered content.
++  bool canvas_block = false;
++  bool webgl_image_block = false;
++  bool audio_block = false;
 +};
 +
 +// nullptr when the engine runs without a persona: Chromium behaves unchanged.
@@ -64,7 +70,7 @@
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_VANTA_PERSONA_H_
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,55 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -94,12 +100,19 @@
 +                     renderer.find("Direct3D11 vs_5_0 ps_5_0") !=
 +                         std::string_view::npos;
 +  s.gpu_nvidia = renderer.starts_with("ANGLE (NVIDIA,");
-+  if (persona->canvas_mode == ::vanta::SurfaceMode::kNoise) {
++  using ::vanta::SurfaceMode;
++  if (persona->canvas_mode == SurfaceMode::kNoise) {
 +    s.canvas_noise_seed = persona->seeds.canvas;
 +  }
-+  if (persona->audio_mode == ::vanta::SurfaceMode::kNoise) {
++  if (persona->webgl_image_mode == SurfaceMode::kNoise) {
++    s.webgl_image_noise_seed = persona->seeds.webgl;
++  }
++  if (persona->audio_mode == SurfaceMode::kNoise) {
 +    s.audio_noise_seed = persona->seeds.audio;
 +  }
++  s.canvas_block = persona->canvas_mode == SurfaceMode::kBlock;
++  s.webgl_image_block = persona->webgl_image_mode == SurfaceMode::kBlock;
++  s.audio_block = persona->audio_mode == SurfaceMode::kBlock;
 +  return s;
 +}
 +

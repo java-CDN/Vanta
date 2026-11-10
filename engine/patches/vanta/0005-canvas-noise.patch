@@ -4,11 +4,14 @@
 # only, lowest bit of R/G/B, one seeded bit per pixel keyed on (seed, canvas
 # x, y, colour): deterministic, idempotent (stable reads, put/get round trip
 # unchanged), grey stays grey, solid fills and transparent pixels exact, all
-# exits agree. Needs 0004 (platform/vanta/vanta_persona.h).
+# exits agree. The same rule serves WebGL readbacks (readPixels RGBA8,
+# toDataURL/toBlob/convertToBlob of WebGL canvases) with webgl_image and
+# seeds.webgl. Mode Block: readbacks of that surface are transparent black.
+# Needs 0004 (platform/vanta/vanta_persona.h).
 
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/canvas_noise.h
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,57 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -40,16 +43,27 @@
 +// never changes, so applying it twice equals applying it once: reads are
 +// stable, and getImageData -> putImageData -> getImageData is unchanged.
 +
-+// In place, on an 8888 (RGBA or BGRA) pixmap whose pixel (0, 0) is canvas
-+// pixel (origin_x, origin_y). Other colour types are left alone.
-+PLATFORM_EXPORT void ApplyCanvasNoise(const SkPixmap& pixmap,
-+                                      int origin_x,
-+                                      int origin_y);
++// The same rule serves WebGL readbacks (readPixels, toDataURL/toBlob of a
++// WebGL canvas) with the persona's webgl_image mode and webgl seed.
++// Mode Block: every readback of that surface is transparent black, the
++// pixels of a blank canvas, whatever was drawn.
++enum class ImageSurface { kCanvas2D, kWebGL };
 +
-+// For toDataURL/toBlob/convertToBlob: a noised raster copy of `image`, or
-+// `image` itself when noise is off or the image is not 8888.
++// In place, on an 8888 (RGBA or BGRA) pixmap whose pixel (0, 0) is canvas
++// pixel (origin_x, origin_y). Other colour types are left alone (Block
++// clears them too).
++PLATFORM_EXPORT void ApplyCanvasNoise(
++    const SkPixmap& pixmap,
++    int origin_x,
++    int origin_y,
++    ImageSurface surface = ImageSurface::kCanvas2D);
++
++// For toDataURL/toBlob/convertToBlob: a noised (or, for Block, blank) raster
++// copy of `image`, or `image` itself when the surface's mode is Real or the
++// image is not 8888.
 +PLATFORM_EXPORT scoped_refptr<StaticBitmapImage> ApplyCanvasNoise(
-+    scoped_refptr<StaticBitmapImage> image);
++    scoped_refptr<StaticBitmapImage> image,
++    ImageSurface surface = ImageSurface::kCanvas2D);
 +
 +}  // namespace vanta_surfaces
 +}  // namespace blink
@@ -57,7 +71,7 @@
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_CANVAS_NOISE_H_
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/canvas_noise.cc
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,154 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -73,6 +87,7 @@
 +#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 +#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
 +#include "third_party/skia/include/core/SkBitmap.h"
++#include "third_party/skia/include/core/SkColor.h"
 +#include "third_party/skia/include/core/SkImage.h"
 +#include "third_party/skia/include/core/SkPixmap.h"
 +
@@ -80,9 +95,22 @@
 +
 +namespace {
 +
-+uint64_t CanvasSeed() {
++uint64_t SurfaceSeed(ImageSurface surface) {
 +  const PersonaSurfaces* p = GetPersonaSurfaces();
-+  return p ? p->canvas_noise_seed : 0;
++  if (!p) {
++    return 0;
++  }
++  return surface == ImageSurface::kWebGL ? p->webgl_image_noise_seed
++                                         : p->canvas_noise_seed;
++}
++
++bool SurfaceBlocked(ImageSurface surface) {
++  const PersonaSurfaces* p = GetPersonaSurfaces();
++  if (!p) {
++    return false;
++  }
++  return surface == ImageSurface::kWebGL ? p->webgl_image_block
++                                         : p->canvas_block;
 +}
 +
 +bool Is8888(SkColorType type) {
@@ -149,17 +177,26 @@
 +
 +}  // namespace
 +
-+void ApplyCanvasNoise(const SkPixmap& pixmap, int origin_x, int origin_y) {
-+  const uint64_t seed = CanvasSeed();
++void ApplyCanvasNoise(const SkPixmap& pixmap,
++                      int origin_x,
++                      int origin_y,
++                      ImageSurface surface) {
++  if (SurfaceBlocked(surface)) {
++    pixmap.erase(SK_ColorTRANSPARENT);
++    return;
++  }
++  const uint64_t seed = SurfaceSeed(surface);
 +  if (seed && Is8888(pixmap.colorType())) {
 +    Noise(pixmap, origin_x, origin_y, seed);
 +  }
 +}
 +
 +scoped_refptr<StaticBitmapImage> ApplyCanvasNoise(
-+    scoped_refptr<StaticBitmapImage> image) {
-+  const uint64_t seed = CanvasSeed();
-+  if (!seed || !image) {
++    scoped_refptr<StaticBitmapImage> image,
++    ImageSurface surface) {
++  const bool block = SurfaceBlocked(surface);
++  const uint64_t seed = SurfaceSeed(surface);
++  if ((!seed && !block) || !image) {
 +    return image;
 +  }
 +  scoped_refptr<StaticBitmapImage> raster = image->MakeUnaccelerated();
@@ -167,15 +204,22 @@
 +    return image;
 +  }
 +  sk_sp<SkImage> source = raster->PaintImageForCurrentFrame().GetSwSkImage();
-+  if (!source || !Is8888(source->colorType())) {
++  if (!source || (!block && !Is8888(source->colorType()))) {
 +    return image;
 +  }
 +  SkBitmap bitmap;
-+  if (!bitmap.tryAllocPixels(source->imageInfo()) ||
-+      !source->readPixels(bitmap.pixmap(), 0, 0)) {
++  if (!bitmap.tryAllocPixels(source->imageInfo())) {
 +    return image;
 +  }
-+  Noise(bitmap.pixmap(), 0, 0, seed);
++  if (block) {
++    // Blank, same size and colour type: what an untouched canvas encodes to.
++    bitmap.eraseColor(SK_ColorTRANSPARENT);
++  } else {
++    if (!source->readPixels(bitmap.pixmap(), 0, 0)) {
++      return image;
++    }
++    Noise(bitmap.pixmap(), 0, 0, seed);
++  }
 +  bitmap.setImmutable();
 +  return UnacceleratedStaticBitmapImage::Create(
 +      bitmap.asImage(), image->Orientation(), image->GetHdrMetadata());
@@ -224,22 +268,28 @@
  #include "third_party/blink/renderer/platform/wtf/functional.h"
  #include "ui/accessibility/accessibility_features.h"
  #include "ui/base/resource/resource_scale_factor.h"
-@@ -1458,6 +1459,9 @@
+@@ -1458,6 +1459,12 @@
        ImageEncoderUtils::ToEncodingMimeType(mime_type);
  
    scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
-+  if (image_bitmap && IsRenderingContext2D()) {
-+    image_bitmap = vanta_surfaces::ApplyCanvasNoise(std::move(image_bitmap));
++  if (image_bitmap && (IsRenderingContext2D() || IsWebGL())) {
++    image_bitmap = vanta_surfaces::ApplyCanvasNoise(
++        std::move(image_bitmap),
++        IsWebGL() ? vanta_surfaces::ImageSurface::kWebGL
++                  : vanta_surfaces::ImageSurface::kCanvas2D);
 +  }
    if (image_bitmap) {
      std::unique_ptr<ImageDataBuffer> data_buffer =
          ImageDataBuffer::Create(image_bitmap);
-@@ -1562,6 +1566,9 @@
+@@ -1562,6 +1569,12 @@
  
    CanvasAsyncBlobCreator* async_creator = nullptr;
    scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(kBackBuffer);
-+  if (image_bitmap && IsRenderingContext2D()) {
-+    image_bitmap = vanta_surfaces::ApplyCanvasNoise(std::move(image_bitmap));
++  if (image_bitmap && (IsRenderingContext2D() || IsWebGL())) {
++    image_bitmap = vanta_surfaces::ApplyCanvasNoise(
++        std::move(image_bitmap),
++        IsWebGL() ? vanta_surfaces::ImageSurface::kWebGL
++                  : vanta_surfaces::ImageSurface::kCanvas2D);
 +  }
    if (image_bitmap) {
      auto* options = ImageEncodeOptions::Create();
@@ -254,12 +304,16 @@
  #include "third_party/blink/renderer/platform/wtf/cross_thread_copier.h"
  #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-@@ -585,6 +586,9 @@
+@@ -585,6 +586,13 @@
  
    base::TimeTicks start_time = base::TimeTicks::Now();
    scoped_refptr<StaticBitmapImage> image_bitmap = context_->GetImage();
-+  if (image_bitmap && context_->IsRenderingContext2D()) {
-+    image_bitmap = vanta_surfaces::ApplyCanvasNoise(std::move(image_bitmap));
++  if (image_bitmap &&
++      (context_->IsRenderingContext2D() || context_->IsWebGL())) {
++    image_bitmap = vanta_surfaces::ApplyCanvasNoise(
++        std::move(image_bitmap),
++        context_->IsWebGL() ? vanta_surfaces::ImageSurface::kWebGL
++                            : vanta_surfaces::ImageSurface::kCanvas2D);
 +  }
    if (image_bitmap) {
      auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(

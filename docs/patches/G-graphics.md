@@ -152,21 +152,43 @@ exactly once.
 **Health checks.** H40 `aud.ctx` (AudioContext output identical across reads,
 different per profile).
 
+## WebGL image mode and Block (integration, 2026-11-10)
+
+The adapter carries one seed and one block flag per surface:
+`canvas_noise_seed`/`canvas_block` (persona `canvas`),
+`webgl_image_noise_seed` (= `seeds.webgl`)/`webgl_image_block` (persona
+`webgl_image`), `audio_noise_seed`/`audio_block` (persona `audio`).
+
+- **WebGL readback** (0005): `vanta_surfaces::ApplyCanvasNoise` takes an
+  `ImageSurface` (`kCanvas2D` default, `kWebGL`). WebGL uses the same pixel
+  rule with the webgl seed on `readPixels` (the tightly packed
+  `RGBA`/`UNSIGNED_BYTE` read: no PACK_ROW_LENGTH / SKIP_*; other formats and
+  PIXEL_PACK_BUFFER reads stay exact) keyed on drawing-buffer coordinates, and
+  on `toDataURL`/`toBlob` of a WebGL canvas and `convertToBlob` of a WebGL
+  OffscreenCanvas keyed on image coordinates.
+- **Block**: `getImageData`, `toDataURL`, `toBlob`, `convertToBlob` of a
+  blocked Canvas 2D (and the WebGL exits above for a blocked `webgl_image`)
+  return transparent black of the real size, what an untouched canvas reads.
+  Blocked audio: the OfflineAudioContext rendered buffer and AnalyserNode float
+  readouts are all zeros (silence). The context itself still works, so pages
+  do not break.
+
 ## Not covered here (follow-ups)
 
-- WebGL image readback (`readPixels`, WebGL `toDataURL`): persona
-  `webgl_image` mode and `seeds.webgl`, not part of this task.
-- Block mode for canvas/audio (H36/H40 expect empty data then).
+- `readPixels` keys rows bottom-up (GL coordinates) while `toDataURL` keys them
+  top-down, so the two noised exits of one WebGL canvas are not bit-identical
+  with each other (each is stable on its own).
+- WebGL drawn into a 2D canvas (`drawImage(webglCanvas)`) then read follows
+  the 2D canvas mode, not `webgl_image`.
 - WebGPU adapter info (H37) and screen/DPR (H38/H39, G3); H41–H43 (media
   devices, speech voices, codecs) belong to G7 and the D5 GN flags.
 - AnalyserNode byte data (`getByte*Data`) and realtime ScriptProcessor /
-  AudioWorklet input are left exact.
+  AudioWorklet input are left exact (also under Block).
 
 ## Risks
 
-- **Interface**: written against the brief's `persona.h` names; the mode fields
-  are assumptions until `docs/persona-interface.md` exists (one file to adapt).
-  `GetPersona()` must work in the renderer process and be thread-safe.
+- **Interface**: reads `components/vanta/persona.h` from 0003
+  (`docs/persona-interface.md`) only through the adapter.
 - **Limits above the host**: on a host that is not D3D11 FL11 (VM, SwiftShader,
   remote desktop), the reported limits can exceed what the context really
   supports; a page that allocates a 16384 texture there gets a GL error.

@@ -5,11 +5,12 @@
 # are never touched. AnalyserNode getFloatFrequencyData/getFloatTimeDomainData
 # are noised on readout. Lowest 3 mantissa bits from (seed, stream, index,
 # kept bits); zeros, infinities and round floats stay exact; idempotent.
+# Mode Block: the same readouts return silence (all samples 0).
 # Needs 0004 (platform/vanta/vanta_persona.h).
 
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/audio_noise.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,33 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -32,6 +33,7 @@
 +// zero/silence, infinities (-Infinity dB), NaN, and "round" floats whose
 +// low 8 mantissa bits are zero (constant sources, gains). The kept bits
 +// never change, so applying the noise twice equals applying it once.
++// Mode Block: every sample reads back as 0 (silence).
 +PLATFORM_EXPORT void ApplyAudioNoise(base::span<float> samples,
 +                                     uint64_t stream);
 +
@@ -44,7 +46,7 @@
 +#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_VANTA_AUDIO_NOISE_H_
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/vanta/audio_noise.cc
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,44 @@
 +// Copyright 2026 The Vanta Authors
 +// Use of this source code is governed by a BSD-style license that can be
 +// found in the LICENSE file.
@@ -53,6 +55,8 @@
 +
 +#include <stddef.h>
 +
++#include <algorithm>
++
 +#include "base/bit_cast.h"
 +#include "third_party/blink/renderer/platform/vanta/vanta_persona.h"
 +
@@ -60,7 +64,15 @@
 +
 +void ApplyAudioNoise(base::span<float> samples, uint64_t stream) {
 +  const PersonaSurfaces* persona = GetPersonaSurfaces();
-+  if (!persona || !persona->audio_noise_seed) {
++  if (!persona) {
++    return;
++  }
++  if (persona->audio_block) {
++    // Mode Block: silence, what a muted render reads back.
++    std::ranges::fill(samples, 0.0f);
++    return;
++  }
++  if (!persona->audio_noise_seed) {
 +    return;
 +  }
 +  constexpr uint32_t kExponent = 0x7f800000u;

@@ -2,7 +2,10 @@
 # The persona's IANA zone becomes the renderer's process-wide ICU default in
 # TimeZoneController::Init (before any isolate or worker), so Date and Intl in
 # windows and all workers agree; host time zone changes are ignored. Empty
-# persona zone (no geo yet) keeps the host zone. No persona: unchanged.
+# persona zone (no geo yet) keeps the host zone. The persona locale becomes
+# the ICU default locale (V8 Intl default) at the same point. A DevTools
+# time zone override still applies; clearing it returns to the persona zone.
+# No persona: unchanged.
 
 --- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
 +++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
@@ -14,7 +17,7 @@
  #include "mojo/public/cpp/bindings/pending_remote.h"
  #include "mojo/public/cpp/bindings/remote.h"
  #include "third_party/blink/public/common/features.h"
-@@ -25,6 +26,7 @@
+@@ -25,9 +26,11 @@
  #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
  #include "third_party/blink/renderer/platform/scheduler/public/main_thread.h"
  #include "third_party/blink/renderer/platform/scheduler/public/main_thread_scheduler.h"
@@ -22,7 +25,11 @@
  #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
  #include "third_party/blink/renderer/platform/wtf/text/unicode_string.h"
  #include "third_party/blink/renderer/platform/wtf/wtf.h"
-@@ -40,6 +42,29 @@
++#include "third_party/icu/source/common/unicode/locid.h"
+ #include "third_party/icu/source/i18n/unicode/timezone.h"
+ #include "v8/include/v8.h"
+ 
+@@ -40,6 +43,50 @@
  // no later than January 2025.
  BASE_FEATURE(kLazyBlinkTimezoneInit, base::FEATURE_DISABLED_BY_DEFAULT);
  
@@ -49,19 +56,41 @@
 +  g_vanta_timezone_pinned = true;
 +}
 +
++// Vanta (0009): the persona's BCP 47 locale becomes the process-wide ICU
++// default locale, which V8 reads once per isolate as the Intl default
++// (Intl.DateTimeFormat().resolvedOptions().locale, toLocaleString() with no
++// argument). Same timing as the zone: before any isolate exists.
++void ApplyVantaLocale() {
++  const auto* vanta = vanta_surfaces::GetPersonaSurfaces();
++  if (!vanta || vanta->locale.empty()) {
++    return;
++  }
++  UErrorCode status = U_ZERO_ERROR;
++  icu::Locale locale = icu::Locale::forLanguageTag(vanta->locale, status);
++  if (U_FAILURE(status) || locale.isBogus()) {
++    LOG(ERROR) << "vanta: invalid persona locale " << vanta->locale;
++    return;
++  }
++  icu::Locale::setDefault(locale, status);
++  if (U_FAILURE(status)) {
++    LOG(ERROR) << "vanta: cannot set persona locale " << vanta->locale;
++  }
++}
++
  // Notify V8 that the date/time configuration of the system might have changed.
  void NotifyTimezoneChangeToV8(v8::Isolate* isolate) {
    DCHECK(isolate);
-@@ -105,6 +130,8 @@
+@@ -105,6 +152,9 @@
  
  // static
  void TimeZoneController::Init() {
 +  // Vanta (0009): before instance() reads the "host" zone below.
 +  ApplyVantaTimeZone();
++  ApplyVantaLocale();
    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
            blink::switches::kTopChromeWebUI) &&
        base::FeatureList::IsEnabled(features::kWebUIBypassMojoConnections)) {
-@@ -251,6 +278,11 @@
+@@ -251,6 +301,11 @@
  void TimeZoneController::OnTimeZoneChange(const String& timezone_id) {
    DCHECK(IsMainThread());
  
@@ -73,24 +102,41 @@
    base::AutoLock locker(instance().lock_);
  
    // Remember requested timezone id so we can set it when timezone
+@@ -263,6 +318,13 @@
+ 
+ const String& TimeZoneController::GetHostTimezoneId() {
+   lock_.AssertAcquired();
++  // Vanta (0009): with a pinned persona zone, that zone is the "host" zone a
++  // cleared DevTools override returns to, never the ICU default of the
++  // moment (which may be the override itself under lazy init).
++  if (host_timezone_id_.IsNull() && g_vanta_timezone_pinned) {
++    host_timezone_id_ =
++        String::FromUTF8(vanta_surfaces::GetPersonaSurfaces()->timezone);
++  }
+   if (host_timezone_id_.IsNull()) {
+     CHECK(base::FeatureList::IsEnabled(kLazyBlinkTimezoneInit));
+     host_timezone_id_ = GetCurrentTimezoneId();
 --- a/third_party/blink/renderer/platform/vanta/vanta_persona.cc
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.cc
-@@ -35,6 +35,7 @@
-   }
+@@ -42,6 +42,8 @@
+   s.audio_block = persona->audio_mode == SurfaceMode::kBlock;
    s.hardware_concurrency =
        static_cast<uint32_t>(persona->hardware_concurrency);
 +  s.timezone = persona->timezone;
++  s.locale = persona->locale;
    return s;
  }
  
 --- a/third_party/blink/renderer/platform/vanta/vanta_persona.h
 +++ b/third_party/blink/renderer/platform/vanta/vanta_persona.h
-@@ -28,6 +28,8 @@
-   uint64_t audio_noise_seed = 0;   // patch 0006
+@@ -34,6 +34,10 @@
+   bool audio_block = false;
    // navigator.hardwareConcurrency (patch 0007); 0: the real count.
    uint32_t hardware_concurrency = 0;
 +  // IANA time zone for ICU (patch 0009); empty: the host zone.
 +  std::string timezone;
++  // BCP 47 default locale for ICU / V8 Intl (patch 0009); empty: unchanged.
++  std::string locale;
  };
  
  // nullptr when the engine runs without a persona: Chromium behaves unchanged.
