@@ -111,7 +111,7 @@
 +  // moment (which may be the override itself under lazy init).
 +  if (host_timezone_id_.IsNull() && g_vanta_timezone_pinned) {
 +    host_timezone_id_ =
-+        String::FromUTF8(vanta_surfaces::GetPersonaSurfaces()->timezone);
++        String::FromUtf8(base::as_byte_span(vanta_surfaces::GetPersonaSurfaces()->timezone));
 +  }
    if (host_timezone_id_.IsNull()) {
      CHECK(base::FeatureList::IsEnabled(kLazyBlinkTimezoneInit));

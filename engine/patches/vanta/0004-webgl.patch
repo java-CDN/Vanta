@@ -262,7 +262,7 @@
 +        if (const auto* vanta = vanta_surfaces::GetPersonaSurfaces();
 +            vanta && !vanta->gpu_renderer.empty()) {
 +          return WebGLAny(script_state,
-+                          String::FromUTF8(vanta->gpu_renderer));
++                          String::FromUtf8(base::as_byte_span(vanta->gpu_renderer)));
 +        }
          if (base::FeatureList::IsEnabled(blink::features::kSpoofWebGLInfo))
            return WebGLAny(script_state, String(blink::features::kSpoofWebGLRendererParam.Get()));
@@ -273,7 +273,7 @@
        if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
 +        if (const auto* vanta = vanta_surfaces::GetPersonaSurfaces();
 +            vanta && !vanta->gpu_vendor.empty()) {
-+          return WebGLAny(script_state, String::FromUTF8(vanta->gpu_vendor));
++          return WebGLAny(script_state, String::FromUtf8(base::as_byte_span(vanta->gpu_vendor)));
 +        }
          if (base::FeatureList::IsEnabled(blink::features::kSpoofWebGLInfo))
            return WebGLAny(script_state, String(blink::features::kSpoofWebGLVendorParam.Get()));
