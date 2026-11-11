@@ -237,7 +237,17 @@ RESTORE = r'''
           Get-ChildItem -LiteralPath $in | Format-Table Name, Length
           # Paths are absolute in build.ninja: the tree must come back to the same work dir.
           $was = (Get-Content -LiteralPath (Join-Path $in 'work.txt') -Raw).Trim()
-          if ($was -ne $env:WORK) {{ throw "build state was made in $was, this runner uses $env:WORK" }}
+          if ($was -ne $env:WORK) {{
+            # The runner picked another drive than the run that made the state
+            # (D: vs C:). Keep the absolute paths: point the old path at this
+            # runner's work dir with a junction and continue under the old path.
+            if (-not (Test-Path -LiteralPath ($was.Substring(0, 3)))) {{ throw "build state was made in $was; drive missing on this runner ($env:WORK)" }}
+            if (Test-Path -LiteralPath $was) {{ throw "build state was made in $was, which already exists here; this runner uses $env:WORK" }}
+            New-Item -ItemType Junction -Path $was -Target $env:WORK | Out-Null
+            Write-Host "junction $was -> $env:WORK"
+            $env:WORK = $was
+            "WORK=$was" >> $env:GITHUB_ENV
+          }}
           $first = Join-Path $in 'build-state.zip.001'
           if (-not (Test-Path -LiteralPath $first)) {{ throw "missing $first" }}
           $sw = [Diagnostics.Stopwatch]::StartNew()
