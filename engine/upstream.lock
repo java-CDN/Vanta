@@ -3,22 +3,22 @@
 # Format: key=value. engine/VERSION is the single source of truth for the
 # Chromium version (R5); every version below must agree with it.
 
-chromium_version=156.0.8078.79
+chromium_version=157.0.8103.50
 chromium_git=https://chromium.googlesource.com/chromium/src.git
-chromium_tag=156.0.8078.79
-chromium_commit=a21ce95c24ce3964416f09ae1862f53f319eb4d0
+chromium_tag=157.0.8103.50
+chromium_commit=049750111b1e5c11565c792b2aeed5541f332bad
 # Source used by the build: the official "-lite" tarball, verified by
 # ungoogled-chromium utils/downloads.py against its published .hashes file.
-chromium_tarball=https://commondatastorage.googleapis.com/chromium-browser-official/chromium-156.0.8078.79-lite.tar.xz
+chromium_tarball=https://commondatastorage.googleapis.com/chromium-browser-official/chromium-157.0.8103.50-lite.tar.xz
 # SHA-256 observed in S1 (matches upstream .hashes):
-chromium_tarball_sha256=d9e8b637dbdd3a1cccb4966e81a66e3f3c4c29f5ce9732a70f5a4f949cd03923
+chromium_tarball_sha256=6511dc3808736004f03a82397a2fa251757f4b6632e2d848bc79ee25b77c7f0f
 
 ucw_repo=https://github.com/ungoogled-software/ungoogled-chromium-windows.git
-ucw_tag=156.0.8078.79-1.1
-ucw_commit=8492884eb30fdd9417ea7816aa92def805c97c74
+ucw_tag=157.0.8103.50-1.1
+ucw_commit=328db819f7da5d571207e243150a14c45c7e06c2
 
 ungoogled_repo=https://github.com/ungoogled-software/ungoogled-chromium.git
-ungoogled_tag=156.0.8078.79-1
-ungoogled_tag_object=e651fea1fae8170d56b93272fed126483def1c4c
+ungoogled_tag=157.0.8103.50-1
+ungoogled_tag_object=52cf525695e93d845562dc81d5ab6f8041831958
 # The submodule commit ungoogled-chromium-windows pins at ucw_commit.
-ungoogled_commit=28a211ab4ab6b83d919966a4f58a6df23cf4fb29
+ungoogled_commit=f5d393f22a60fa4f79f42dbb26acd0bcc01995ae
