@@ -37,7 +37,12 @@ def b64(b: bytes) -> str:
 def smoke_persona(engine: str) -> dict:
     """A complete persona as patch 0003 (PersonaFromDict) requires it; a payload
     with missing fields is refused with exit 86 by design."""
-    major = engine.split('.')[0]
+    # engine = {'major','minor','build','patch'} as patch 0002 reads it; the UA
+    # strings follow it, like a persona made for that engine version.
+    v = engine
+    full = f"{v['major']}.{v['minor']}.{v['build']}.{v['patch']}"
+    major = str(v['major'])
+    engine_str = full
     return {
         'engine': engine, 'vanta_smoke': True, 'persona_id': 'smoke',
         'schema': 1, 'os': 'windows11',
@@ -46,8 +51,8 @@ def smoke_persona(engine: str) -> dict:
         'brand': 'Google Chrome', 'platform': 'Win32',
         'ua_ch': {
             'brands': [['Not:A-Brand', '8'], ['Chromium', major], ['Google Chrome', major]],
-            'full_version_list': [['Not:A-Brand', '8.0.0.0'], ['Chromium', engine],
-                                  ['Google Chrome', engine]],
+            'full_version_list': [['Not:A-Brand', '8.0.0.0'], ['Chromium', engine_str],
+                                  ['Google Chrome', engine_str]],
             'platform': 'Windows', 'platform_version': '19.0.0', 'architecture': 'x86',
             'bitness': '64', 'model': '', 'mobile': False, 'wow64': False,
             'form_factors': ['Desktop'],
