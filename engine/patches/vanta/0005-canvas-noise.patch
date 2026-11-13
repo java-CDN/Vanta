@@ -417,20 +417,25 @@
      "video_capture/video_capture_impl.cc",
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-@@ -104,10 +104,13 @@
+@@ -118,15 +118,18 @@
  #include "third_party/blink/renderer/platform/text/text_run.h"
  #include "third_party/blink/renderer/platform/text/unicode_bidi.h"
  #include "third_party/blink/renderer/platform/timer.h"
 +#include "third_party/blink/renderer/platform/vanta/canvas_noise.h"
  #include "third_party/blink/renderer/platform/wtf/casting.h"
  #include "third_party/blink/renderer/platform/wtf/forward.h"
+ #include "third_party/blink/renderer/platform/wtf/functional.h"
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
  #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 +#include "third_party/skia/include/core/SkBitmap.h"
+ #include "third_party/skia/include/core/SkCanvas.h"
+ #include "third_party/skia/include/core/SkColor.h"
+ #include "third_party/skia/include/core/SkColorSpace.h"
+ #include "third_party/skia/include/core/SkImageInfo.h"
+ #include "third_party/skia/include/core/SkSurface.h"
 +#include "ui/gfx/geometry/rect.h"
  #include "ui/gfx/geometry/skia_conversions.h"
  #include "ui/gfx/geometry/vector2d_f.h"
- 
 @@ -567,6 +570,31 @@
      if (read_pixels_successful && RuntimeEnabledFeatures::FingerprintingCanvasImageDataNoiseEnabled()) {
        StaticBitmapImage::ShuffleSubchannelColorData(image_data_pixmap.addr(), image_data_pixmap.info());
