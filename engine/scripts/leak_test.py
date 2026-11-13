@@ -241,6 +241,9 @@ def main():
             '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
             '--disable-quic', '--no-first-run', '--no-default-browser-check',
+            # Test only: CI runners have no GPU, so WebGL needs the software
+            # rasterizer. Real profiles run on the host GPU (G001).
+            '--enable-unsafe-swiftshader',
             f'http://127.0.0.1:{wport}/probe.html']
     print('>', ' '.join(args))
     log = open(work / 'engine.log', 'w', encoding='utf-8', errors='replace')
