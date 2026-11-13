@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install cryptography
+      - run: python -m pip install cryptography psutil
       - uses: actions/download-artifact@v4
         with:
           name: vanta-engine-win64
@@ -40,11 +40,21 @@ jobs:
           if (-not $exe) { throw 'vanta-chromium.exe not found in the artifact' }
           python engine/scripts/smoke_s5lite.py --exe $exe.FullName --work "$env:RUNNER_TEMP\smoke"
           if ($LASTEXITCODE -ne 0) { throw "smoke failed ($LASTEXITCODE)" }
+      - name: Safety test (no IP/DNS/WebRTC leak, persona applied)
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem -LiteralPath "$env:RUNNER_TEMP\bin","$env:RUNNER_TEMP\engine" -Filter vanta-chromium.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          python engine/scripts/leak_test.py --exe $exe.FullName --work "$env:RUNNER_TEMP\leak"
+          if ($LASTEXITCODE -ne 0) { throw "safety test failed ($LASTEXITCODE)" }
       - name: Upload smoke logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: s5-lite-logs
-          path: ${{ runner.temp }}\smoke\*.log
+          path: |
+            ${{ runner.temp }}\smoke\*.log
+            ${{ runner.temp }}\leak\*.log
+            ${{ runner.temp }}\leak\probe.json
           retention-days: 7
           if-no-files-found: ignore
