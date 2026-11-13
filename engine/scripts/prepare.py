@@ -227,10 +227,12 @@ class Ctx:
             raise SystemExit(f'vcvars64.bat not found under {out}')
         return p
 
-    def _run_vc(self, *args):
-        """Same as build.py _run_build_process: vcvars64 + DEPOT_TOOLS_WIN_TOOLCHAIN=0."""
-        cmd = [f'call "{self._vcvars()}" >nul', 'set DEPOT_TOOLS_WIN_TOOLCHAIN=0',
-               ' '.join(f'"{a}"' for a in args), 'exit %ERRORLEVEL%\n']
+    def _run_vc(self, *args, env=None):
+        """Same as build.py _run_build_process: vcvars64 + DEPOT_TOOLS_WIN_TOOLCHAIN=0.
+        `env` adds extra variables (set after vcvars)."""
+        cmd = [f'call "{self._vcvars()}" >nul', 'set DEPOT_TOOLS_WIN_TOOLCHAIN=0']
+        cmd += [f'set {k}={v}' for k, v in (env or {}).items()]
+        cmd += [' '.join(f'"{a}"' for a in args), 'exit %ERRORLEVEL%\n']
         log('vc> ' + ' '.join(map(str, args)))
         r = subprocess.run(('cmd.exe', '/k'), input='\n'.join(cmd), text=True, cwd=self.src)
         if r.returncode != 0:
@@ -397,10 +399,21 @@ class Ctx:
                         shutil.copytree(item, target, dirs_exist_ok=True)
                     else:
                         shutil.copy2(item, target)
+        self._copy_rustc_dev()
         with open(dst / 'INSTALLED_VERSION', 'w') as f:
             subprocess.run([str(src64 / 'rustc' / 'bin' / 'rustc.exe'), '--version'], stdout=f,
                            check=True)
         log('rust toolchain assembled: ' + (dst / 'INSTALLED_VERSION').read_text().strip())
+
+    def _copy_rustc_dev(self):
+        # build.py (157+): rustc-dev (rustc_private crates, x64 host) for Crubit.
+        dev = self.src / 'third_party' / 'rust-toolchain-x64-dev'
+        lib = self.src / 'third_party' / 'rust-toolchain' / 'lib'
+        n = 0
+        for item in dev.glob('*/lib/*'):
+            shutil.copytree(item, lib / item.name, dirs_exist_ok=True)
+            n += 1
+        log(f'rustc-dev copied into rust-toolchain/lib ({n} dirs)')
 
     def args_gn(self) -> str:
         """ungoogled flags.gn + flags.windows.gn (+ build.py tarball/libclang additions)
@@ -460,9 +473,42 @@ class Ctx:
         # Same as build.py: bindgen is built from source before ninja.
         if (self.src / 'third_party' / 'rust-toolchain' / 'bin' / 'bindgen.exe').exists():
             log('bindgen already built')
+        else:
+            self._run_vc(sys.executable, 'tools\\rust\\build_bindgen.py', '--skip-test')
+            log('bindgen built')
+        self.build_crubit()
+
+    def build_crubit(self):
+        """Same as build.py (157+): build Crubit's cc_bindings_from_rs, which
+        flags.windows.gn rust_crubit_root points at. Runs from the bindgen step,
+        so resumed S3 stages (resync,args,gngen,bindgen) build it too."""
+        root = self.src / 'third_party' / 'rust-toolchain' / 'crubit'
+        exe = root / 'bin' / 'cc_bindings_from_rs.exe'
+        manifest = root / 'lib' / 'third_party' / 'crubit' / 'Cargo.toml'
+        if exe.exists():
+            log('crubit cc_bindings_from_rs already built')
             return
-        self._run_vc(sys.executable, 'tools\\rust\\build_bindgen.py', '--skip-test')
-        log('bindgen built')
+        if not manifest.exists():
+            log('no crubit sources in this tree (pre-157 upstream): skipped')
+            return
+        self._copy_rustc_dev()
+        rust_bin = (self.src / 'third_party' / 'rust-toolchain' / 'bin').resolve()
+        target = (self.src / 'out' / 'crubit').resolve()
+        env = {'RUSTC': str(rust_bin / 'rustc.exe'),
+               'CARGO_HOME': str(target / 'cargo_home'),
+               'RUSTFLAGS': '-Ctarget-feature=+crt-static'}
+        self._run_vc(str(rust_bin / 'cargo.exe'), 'build', '--release', '--locked',
+                     '-p', 'cc_bindings_from_rs', '--bin', 'cc_bindings_from_rs',
+                     '--manifest-path', str(manifest.resolve()), '--target-dir', str(target),
+                     env=env)
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target / 'release' / 'cc_bindings_from_rs.exe', exe)
+        # Windows has no rpath: put rustc_driver-*.dll (and its deps) next to the exe
+        for dll in rust_bin.glob('*.dll'):
+            shutil.copy2(dll, exe.parent / dll.name)
+        subprocess.run([str(exe), '--help'], stdout=subprocess.DEVNULL, check=True)
+        shutil.rmtree(target, ignore_errors=True)  # keep the stage archive small
+        log('crubit cc_bindings_from_rs built')
 
 
 def main():
