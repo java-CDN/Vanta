@@ -213,6 +213,8 @@ def main():
     ap.add_argument('--exe', type=Path, required=True)
     ap.add_argument('--work', type=Path)
     ap.add_argument('--seconds', type=int, default=40)
+    ap.add_argument('--control', action='store_true',
+                    help='diagnostic: no persona, report WebGL only')
     a = ap.parse_args()
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives import serialization
@@ -247,6 +249,8 @@ def main():
             # rasterizer. Real profiles run on the host GPU (G001).
             '--enable-unsafe-swiftshader',
             f'http://127.0.0.1:{wport}/probe.html']
+    if a.control:
+        args = [x for x in args if not x.startswith(('--vanta-config', '--vanta-pubkey'))]
     print('>', ' '.join(args))
     log = open(work / 'engine.log', 'w', encoding='utf-8', errors='replace')
     proc = subprocess.Popen(args + ['--enable-logging=stderr', '--v=0'],
@@ -265,6 +269,13 @@ def main():
     page.shutdown()
 
     res = []
+    if a.control:
+        print('CONTROL (no persona): probe', got, 'webgl', RESULT.get('webgl'),
+              'webgl2', RESULT.get('webgl2'))
+        for l in (work / 'engine.log').read_text(encoding='utf-8', errors='replace').splitlines():
+            if 'gpu' in l.lower():
+                print(l[:300])
+        return 0
 
     def rec(name, ok, detail):
         res.append((name, bool(ok), str(detail)[:300]))

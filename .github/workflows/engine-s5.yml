@@ -40,6 +40,11 @@ jobs:
           if (-not $exe) { throw 'vanta-chromium.exe not found in the artifact' }
           python engine/scripts/smoke_s5lite.py --exe $exe.FullName --work "$env:RUNNER_TEMP\smoke"
           if ($LASTEXITCODE -ne 0) { throw "smoke failed ($LASTEXITCODE)" }
+      - name: GPU control (same engine, no persona)
+        if: always()
+        run: |
+          $exe = Get-ChildItem -LiteralPath "$env:RUNNER_TEMP\bin","$env:RUNNER_TEMP\engine" -Filter vanta-chromium.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          python engine/scripts/leak_test.py --exe $exe.FullName --work "$env:RUNNER_TEMP\control" --control --seconds 25
       - name: Safety test (no IP/DNS/WebRTC leak, persona applied)
         if: always()
         run: |
