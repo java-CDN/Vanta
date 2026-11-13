@@ -1,0 +1,39 @@
+name: engine-watch
+
+# Engine auto-update. Every 6 hours: if ungoogled-chromium-windows has a new release,
+# pin it on branch engine/auto-<tag> and walk it through S1 -> S3 -> S5 -> CI, one
+# step per run (engine/scripts/auto_pipeline.py). Ends at READY: merging the branch
+# and publishing a release stay manual. Never touches main.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_tag:
+        description: pin this ucw tag instead of the newest (e.g. 157.0.8103.50-1.1)
+        default: ''
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: engine-watch
+  cancel-in-progress: false
+
+jobs:
+  step:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python engine/scripts/auto_pipeline.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_TAG: ${{ inputs.force_tag }}
