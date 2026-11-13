@@ -75,10 +75,10 @@
            ? language::GetIncognitoLanguageList(language_list)
 --- a/components/embedder_support/BUILD.gn
 +++ b/components/embedder_support/BUILD.gn
-@@ -60,6 +60,7 @@
+@@ -59,6 +59,7 @@
+   deps = [
+     ":embedder_support",
      "//build:branding_buildflags",
-     "//components/policy/core/common",
-     "//components/prefs",
 +    "//components/vanta",
      "//components/version_info",
      "//net",
@@ -95,10 +95,10 @@
    "+content/public/common",
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
-@@ -30,6 +30,7 @@
+@@ -27,6 +27,7 @@
+ #include "build/branding_buildflags.h"
+ #include "build/build_config.h"
  #include "components/embedder_support/switches.h"
- #include "components/policy/core/common/policy_pref_names.h"
- #include "components/prefs/pref_service.h"
 +#include "components/vanta/persona.h"
  #include "components/version_info/version_info.h"
  #include "net/http/http_util.h"
