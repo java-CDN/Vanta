@@ -34,9 +34,47 @@ def b64(b: bytes) -> str:
     return base64.b64encode(b).decode()
 
 
+def smoke_persona(engine: str) -> dict:
+    """A complete persona as patch 0003 (PersonaFromDict) requires it; a payload
+    with missing fields is refused with exit 86 by design."""
+    major = engine.split('.')[0]
+    return {
+        'engine': engine, 'vanta_smoke': True, 'persona_id': 'smoke',
+        'schema': 1, 'os': 'windows11',
+        'user_agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                       f'(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36'),
+        'brand': 'Google Chrome', 'platform': 'Win32',
+        'ua_ch': {
+            'brands': [['Not:A-Brand', '8'], ['Chromium', major], ['Google Chrome', major]],
+            'full_version_list': [['Not:A-Brand', '8.0.0.0'], ['Chromium', engine],
+                                  ['Google Chrome', engine]],
+            'platform': 'Windows', 'platform_version': '19.0.0', 'architecture': 'x86',
+            'bitness': '64', 'model': '', 'mobile': False, 'wow64': False,
+            'form_factors': ['Desktop'],
+        },
+        'hardware_concurrency': 8, 'device_memory': 8, 'max_touch_points': 0,
+        'screen': {'width': 1920, 'height': 1080, 'avail_width': 1920,
+                   'avail_height': 1032, 'color_depth': 24},
+        'device_pixel_ratio': 1.0,
+        'gpu': {'vendor': 'Google Inc. (NVIDIA)',
+                'renderer': ('ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) '
+                             'Direct3D11 vs_5_0 ps_5_0, D3D11)'),
+                'webgpu_vendor': 'nvidia', 'webgpu_arch': 'ampere'},
+        'canvas': 'noise', 'webgl_image': 'noise', 'audio': 'noise',
+        'canvas_seed': '11', 'audio_seed': '12', 'webgl_seed': '13',
+        'font_seed': '14', 'clientrects_seed': '15',
+        'fonts': ['Arial', 'Calibri', 'Segoe UI', 'Times New Roman'],
+        'locale': 'en-US', 'languages': ['en-US', 'en'],
+        'accept_language': 'en-US,en;q=0.9',
+        'geo': {'country': 'US', 'timezone': 'America/New_York', 'latitude': 40.71,
+                'longitude': -74.0, 'accuracy_m': 1000},
+        'media_devices': {'audioinput': 1, 'audiooutput': 1, 'videoinput': 1},
+        'webrtc_policy': 'disable_non_proxied_udp',
+    }
+
+
 def signed_config(key, engine, path: Path, tamper=False):
-    payload = json.dumps({'engine': engine, 'vanta_smoke': True, 'persona_id': 'smoke'},
-                         separators=(',', ':'))
+    payload = json.dumps(smoke_persona(engine), separators=(',', ':'))
     sig = key.sign(payload.encode())
     if tamper:
         sig = bytes([sig[0] ^ 0x01]) + sig[1:]

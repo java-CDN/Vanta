@@ -1,0 +1,50 @@
+name: engine-s5
+
+# S5-lite smoke alone, on an engine an earlier engine-s3 run already built and
+# uploaded (artifact vanta-engine-win64). Lets a smoke-script fix be checked
+# without recompiling Chromium. Dispatch only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_run_id:
+        description: engine-s3 run id whose vanta-engine-win64 artifact to test
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install cryptography
+      - uses: actions/download-artifact@v4
+        with:
+          name: vanta-engine-win64
+          path: ${{ runner.temp }}\engine
+          run-id: ${{ inputs.engine_run_id }}
+          github-token: ${{ github.token }}
+      - name: S5-lite smoke (no config / 86 / 87 / valid signed config)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Get-ChildItem -LiteralPath "$env:RUNNER_TEMP\engine" -Filter *.zip -Recurse | Select-Object -First 1
+          if ($zip) { Expand-Archive -LiteralPath $zip.FullName -DestinationPath "$env:RUNNER_TEMP\bin" -Force; $root = "$env:RUNNER_TEMP\bin" } else { $root = "$env:RUNNER_TEMP\engine" }
+          $exe = Get-ChildItem -LiteralPath $root -Filter vanta-chromium.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'vanta-chromium.exe not found in the artifact' }
+          python engine/scripts/smoke_s5lite.py --exe $exe.FullName --work "$env:RUNNER_TEMP\smoke"
+          if ($LASTEXITCODE -ne 0) { throw "smoke failed ($LASTEXITCODE)" }
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5-lite-logs
+          path: ${{ runner.temp }}\smoke\*.log
+          retention-days: 7
+          if-no-files-found: ignore
