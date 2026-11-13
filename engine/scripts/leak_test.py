@@ -70,7 +70,9 @@ PROBE = r'''<!doctype html><meta charset="utf-8"><title>vanta probe</title><body
               mobile: navigator.userAgentData.mobile};
   } catch (e) { r.uach = 'ERR ' + e; }
   try {
-    const gl = document.createElement('canvas').getContext('webgl');
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    r.webgl2 = !!document.createElement('canvas').getContext('webgl2');
     const d = gl.getExtension('WEBGL_debug_renderer_info');
     r.webgl = {vendor: gl.getParameter(d.UNMASKED_VENDOR_WEBGL),
                renderer: gl.getParameter(d.UNMASKED_RENDERER_WEBGL)};
@@ -317,6 +319,12 @@ def main():
               for n, ok, d in res]
     table = '\n'.join(lines)
     print(table)
+    log.close()
+    gl_lines = [l.rstrip() for l in (work / 'engine.log').read_text(
+        encoding='utf-8', errors='replace').splitlines()
+        if any(k in l.lower() for k in ('gpu', 'webgl', 'angle', 'swiftshader', 'vanta', 'gl_'))]
+    print('--- engine log (gpu/webgl/vanta lines) ---')
+    print('\n'.join(gl_lines[:60]))
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
             f.write(f'### Vanta safety test ({version})\n\n{table}\n')
