@@ -249,7 +249,8 @@ def main():
             '--disable-quic', '--no-first-run', '--no-default-browser-check',
             # Test only: CI runners have no GPU, so WebGL needs the software
             # rasterizer. Real profiles run on the host GPU (G001).
-            '--enable-unsafe-swiftshader',
+            # (D3D11 fails there; ANGLE on SwiftShader Vulkan works.)
+            '--use-angle=swiftshader', '--use-gl=angle',
             f'http://127.0.0.1:{wport}/probe.html']
     if a.control:
         args = [x for x in args if not x.startswith(('--vanta-config', '--vanta-pubkey'))]
