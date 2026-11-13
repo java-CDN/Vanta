@@ -44,7 +44,10 @@ jobs:
         if: always()
         run: |
           $exe = Get-ChildItem -LiteralPath "$env:RUNNER_TEMP\bin","$env:RUNNER_TEMP\engine" -Filter vanta-chromium.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          Get-ChildItem -LiteralPath $exe.DirectoryName -Filter *.dll | Format-Table Name, Length
           python engine/scripts/leak_test.py --exe $exe.FullName --work "$env:RUNNER_TEMP\control" --control --seconds 25
+          python engine/scripts/leak_test.py --exe $exe.FullName --work "$env:RUNNER_TEMP\control2" --control --seconds 25 --extra=--disable-gpu-sandbox
+          python engine/scripts/leak_test.py --exe $exe.FullName --work "$env:RUNNER_TEMP\control3" --control --seconds 25 --extra=--use-angle=swiftshader --extra=--use-gl=angle
       - name: Safety test (no IP/DNS/WebRTC leak, persona applied)
         if: always()
         run: |

@@ -213,6 +213,8 @@ def main():
     ap.add_argument('--exe', type=Path, required=True)
     ap.add_argument('--work', type=Path)
     ap.add_argument('--seconds', type=int, default=40)
+    ap.add_argument('--extra', action='append', default=[],
+                    help='diagnostic: extra engine switch')
     ap.add_argument('--control', action='store_true',
                     help='diagnostic: no persona, report WebGL only')
     a = ap.parse_args()
@@ -251,6 +253,7 @@ def main():
             f'http://127.0.0.1:{wport}/probe.html']
     if a.control:
         args = [x for x in args if not x.startswith(('--vanta-config', '--vanta-pubkey'))]
+    args[1:1] = a.extra
     print('>', ' '.join(args))
     log = open(work / 'engine.log', 'w', encoding='utf-8', errors='replace')
     proc = subprocess.Popen(args + ['--enable-logging=stderr', '--v=0'],
