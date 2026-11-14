@@ -178,10 +178,10 @@
 +#endif  // COMPONENTS_VANTA_FONT_ALLOWLIST_H_
 --- a/content/browser/BUILD.gn
 +++ b/content/browser/BUILD.gn
-@@ -192,6 +192,7 @@
-     "//components/ukm/debug:util",
+@@ -194,6 +194,7 @@
      "//components/url_formatter",
      "//components/url_matcher",
+     "//components/url_pattern",
 +    "//components/vanta",
      "//components/variations",
      "//components/variations/net",
